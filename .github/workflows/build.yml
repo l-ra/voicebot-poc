@@ -2,6 +2,7 @@ name: Test, build and publish
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -16,45 +17,104 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - run: python -m unittest -v
+      - run: python -m unittest discover -s ci -v
       - run: python -m compileall -q server.py settings.py quiz.py
       - run: python -c "from pathlib import Path; s=Path('index.html').read_text(); Path('/tmp/voicebot.js').write_text(s.split('<script>')[1].split('</script>')[0])"
       - run: node --check /tmp/voicebot.js
       - uses: azure/setup-helm@v4
       - run: helm lint helm/voicebot-poc && helm template voicebot helm/voicebot-poc > /tmp/voicebot.yaml
   publish:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')))
     needs: test
     runs-on: ubuntu-latest
+    concurrency:
+      group: voicebot-publication
+      cancel-in-progress: false
     permissions:
-      contents: read
+      contents: write
       packages: write
+    env:
+      IMAGE: ghcr.io/l-ra/voicebot-poc
+      CHART: ghcr.io/l-ra/charts/voicebot-poc
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: version
+        name: Resolve version and publication policy
         run: |
-          version="$(cat VERSION)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          git fetch origin main --tags
+          python ci/version.py
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            git merge-base --is-ancestor HEAD origin/main
+          fi
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: azure/setup-helm@v4
+      - name: Registry login
+        run: |
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Reject existing release artifacts
+        if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python ci/registry.py absent "$IMAGE:$VERSION" "$CHART:$VERSION"
+      - name: Build and publish immutable image
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ghcr.io/l-ra/voicebot-poc:${{ steps.version.outputs.version }}
-            ghcr.io/l-ra/voicebot-poc:sha-${{ github.sha }}
-            ghcr.io/l-ra/voicebot-poc:latest
-      - uses: azure/setup-helm@v4
-      - name: Publish OCI Helm chart
+          build-args: APP_VERSION=${{ steps.version.outputs.version }}
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.image_tag }}
+      - name: Publish versioned chart
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          helm package helm/voicebot-poc --version "$VERSION" --app-version "$IMAGE_TAG"
+          helm push "voicebot-poc-$VERSION.tgz" oci://ghcr.io/l-ra/charts
+      - name: Publish development aliases
+        if: steps.version.outputs.release == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          # Do not let a delayed build of an older commit replace main's aliases.
+          git fetch origin main
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+            echo "Not current main; immutable build only"
+            exit 0
+          fi
+          docker buildx imagetools create --tag "$IMAGE:dev" "$IMAGE:$IMAGE_TAG"
+          docker buildx imagetools create --tag "$IMAGE:sha-$GITHUB_SHA" "$IMAGE:$IMAGE_TAG"
+          helm package helm/voicebot-poc --version 0.0.0-dev --app-version dev
+          helm push voicebot-poc-0.0.0-dev.tgz oci://ghcr.io/l-ra/charts
+      - name: Create GitHub Release
+        if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          args=(--verify-tag --title "v$VERSION" --generate-notes --latest=false)
+          if [[ "$PRERELEASE" == true ]]; then args+=(--prerelease); fi
+          gh release create "v$VERSION" "${args[@]}" "voicebot-poc-$VERSION.tgz"
+      - name: Promote newest stable release
+        if: steps.version.outputs.release == 'true' && steps.version.outputs.prerelease == 'false'
+        env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          helm package helm/voicebot-poc --version "$VERSION" --app-version "$VERSION"
-          helm push "voicebot-poc-$VERSION.tgz" oci://ghcr.io/l-ra/charts
+          # Compare with published stable image tags, including legacy 0.2.0.
+          if python ci/registry.py newest "$IMAGE" "$VERSION"; then
+            docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE:$VERSION"
+            gh release edit "v$VERSION" --latest
+          else
+            code=$?
+            if [[ "$code" != 3 ]]; then exit "$code"; fi
+            echo "Newer stable image exists; latest remains unchanged"
+          fi

@@ -1,4 +1,4 @@
-# Voicebot PoC — 0.2.0
+# Voicebot PoC
 
 Demonstrátor hlasové soutěže GPT-Live. Zachovává WebRTC a přidává nativní odchozí SIP. Soutěžní stav, otázky A/B/C a hodnocení řídí deterministický Python backend; žádný druhý LLM. Jde o fiktivní demo bez výhry. Používejte pouze vlastní telefonní čísla nebo čísla osob, které předem souhlasily.
 
@@ -163,9 +163,37 @@ Tato varianta je alternativou k přímé instalaci výše, nikoli doplňkem k ji
 
 **Bezpečnost:** Soubor s reálnými credentials nevkládejte do veřejného upstream repozitáře ani veřejného chartu. Soubor je součástí deployment chartu v čitelné podobě a vyrenderovaný Secret obsahuje pouze base64, nikoli šifrování. Chraňte zdroj nasazení, přístup k renderovaným manifestům, Kubernetes Secretům a případným metadatům/historii Helm release. Při použití GitOps zajistěte bezpečné dodání nebo dešifrování souboru před renderováním; samotný privátní Git repozitář není šifrování secrets. Zapněte šifrování Secretů v etcd a omezte RBAC. Pokud požadujete, aby credentials nebyly součástí chartu ani renderovaných manifestů, použijte variantu s externě spravovaným Secretem.
 
-## Publikace
+## CI/CD a vydávání verzí
 
-Actions na main testují Python, JS a Helm a publikují image ghcr.io/l-ra/voicebot-poc:0.2.0, latest a sha-<commit>; OCI chart ghcr.io/l-ra/charts/voicebot-poc:0.2.0. PR pouze testují. Při vydání další verze změňte VERSION, Chart.yaml a verzi v konzoli. GitHub standardně vytváří GHCR balíčky jako private i u public repozitáře. Po prvním úspěšném push musí vlastník v Package settings u obou balíčků nastavit Change visibility → Public, pokud už nejsou veřejné.
+PR provádí pouze testy. Push do main (nebo workflow_dispatch na main) po úspěšných testech publikuje vývojové artefakty. Git tag vX.Y.Z nebo vX.Y.Z-rc.N spustí řízený release; tag musí být na commitu dosažitelném z main. Soubor VERSION se již nepoužívá. Verze GUI se načítá z /healthz a odpovídá buildu.
+
+| Trigger | Image tag | OCI chart verze |
+| --- | --- | --- |
+| main, ruční build na main | 0.0.0-dev.RUN.ATTEMPT | 0.0.0-dev.RUN.ATTEMPT |
+| aktuální main | dev, sha-COMMIT | 0.0.0-dev |
+| v0.3.0 | 0.3.0 | 0.3.0 |
+| v0.4.0-rc.1 | 0.4.0-rc.1 | 0.4.0-rc.1 |
+
+Registry: image ghcr.io/l-ra/voicebot-poc, chart oci://ghcr.io/l-ra/charts/voicebot-poc. RUN a ATTEMPT jsou GitHub Actions run number a run attempt. Neměnný vývojový chart odkazuje na stejně označený image. Plovoucí chart 0.0.0-dev odkazuje na image dev s výchozí Always pull policy. Alias sha-COMMIT se publikuje spolu s dev pro aktuální main a při opakovaném buildu téhož commitu se může změnit; pro přesné připnutí použijte RUN.ATTEMPT nebo digest.
+
+Pro vývojový umbrella chart použijte:
+
+```yaml
+dependencies:
+  - name: voicebot-poc
+    version: 0.0.0-dev
+    repository: oci://ghcr.io/l-ra/charts
+```
+
+Pro GitOps preferujte konkrétní neměnnou verzi, např. 0.0.0-dev.42.1; změňte ji deklarativně v Chart.yaml, obnovte případný Chart.lock a vendored dependency. Přepis plovoucího tagu sám o sobě nevyvolá rollout ani nemusí invalidovat cache GitOps systému. Dřívější build, který již není aktuálním main, neaktualizuje plovoucí aliasy.
+
+### Řízený release
+
+Vytvořte Git tag (například v0.3.0) přes GitHub nebo git tag a git push. Nevytvářejte předem GitHub Release, vytvoří jej pipeline s generovaným changelogem a přiloženým Helm balíčkem. RC tagy mají formát v0.4.0-rc.1. Pipeline ověří dosažitelnost z main a absenci obou release tagů v GHCR; chyby registry kromě potvrzeného neexistujícího repozitáře zastaví publikaci. Stabilní release může aktualizovat latest pouze pokud registry neobsahuje vyšší stabilní verzi, včetně původní 0.2.0. RC latest nemění. Existující 0.2.0 se nepřepisuje.
+
+Publikační joby jsou serializovány; GitHub concurrency může nahradit čekající job novějším. Registry publikace image a chartu není atomická: při částečném selhání se vydání automaticky nepřepisuje; správce musí zkontrolovat stav a zvolit řízenou opravu nebo nové číslo verze. Ochrana platí pro tuto pipeline, nikoli ruční zápis správce do GHCR. Doporučeno chránit release tagy pravidly GitHub rulesets.
+
+GitHub standardně vytváří GHCR balíčky jako private i u public repozitáře. Vlastník nastaví Package settings → Change visibility → Public u obou balíčků, pokud už nejsou veřejné.
 
 ## Omezení
 

@@ -115,7 +115,7 @@ async def guard(req, handler):
     return response
 
 async def index(req): return web.FileResponse(ROOT/'index.html')
-async def health(req): return web.json_response({'ok':True})
+async def health(req): return web.json_response({'ok':True,'version':os.getenv('APP_VERSION','local')})
 async def config(req):
     cfg=req.app['cfg']
     return web.json_response(dict(model=cfg['model'],demo_code=cfg['quiz_code'],sip_enabled=bool(cfg.get('sip')),max_call_seconds=cfg['max_call_seconds']))

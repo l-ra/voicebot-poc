@@ -2,7 +2,7 @@
 image:
   repository: ghcr.io/l-ra/voicebot-poc
   tag: ""
-  pullPolicy: IfNotPresent
+  pullPolicy: "" # automatic: Always for dev, IfNotPresent otherwise
 imagePullSecrets: []
 existingSecret: voicebot-config
 resources:

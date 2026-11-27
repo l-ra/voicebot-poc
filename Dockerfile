@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 LABEL org.opencontainers.image.source="https://github.com/l-ra/voicebot-poc"
+ARG APP_VERSION=local
+LABEL org.opencontainers.image.version=$APP_VERSION
+ENV APP_VERSION=$APP_VERSION
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

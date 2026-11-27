@@ -35,7 +35,7 @@ spec:
       containers:
         - name: voicebot
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default (ternary "Always" "IfNotPresent" (eq (.Values.image.tag | default .Chart.AppVersion) "dev")) }}
           ports:
             - name: http
               containerPort: 8765
