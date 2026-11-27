@@ -57,12 +57,14 @@ Alternativně instalujte lokální chart: helm upgrade --install voicebot ./helm
 
 ### Alternativa: vlastní nadřazený chart s jednou dependency
 
-Tento postup umožňuje spravovat instalaci jako jeden Helm release bez ručního vytváření Secretu. Vytvořte mimo repozitář následující adresář:
+Tento postup je určen pro deklarativní nasazení (např. GitOps). Nadřazený chart sám načte konfiguraci z pevné cesty `files/config.json` a vytvoří Secret. Není potřeba `--set-file`, ruční vytváření Secretu ani jiné parametry příkazové řádky. Připravte v neveřejném deployment projektu následující strukturu:
 
 ```text
 my-voicebot/
   Chart.yaml
   values.yaml
+  files/
+    config.json
   templates/
     secret.yaml
 ```
@@ -83,7 +85,6 @@ dependencies:
 **values.yaml**
 
 ```yaml
-configJson: ""
 voicebot-poc:
   existingSecret: voicebot-config
 ```
@@ -97,10 +98,10 @@ metadata:
   name: {{ index .Values "voicebot-poc" "existingSecret" | quote }}
 type: Opaque
 data:
-  config.json: {{ required "Provide --set-file configJson=/path/to/config.json" .Values.configJson | b64enc | quote }}
+  config.json: {{ required "Missing or empty files/config.json in parent chart" (.Files.Get "files/config.json") | b64enc | quote }}
 ```
 
-**Externí soubor config.json** (uložte mimo adresář chartu; všechny údaje níže jsou pouze příklady):
+**files/config.json** (soubor uvnitř nadřazeného chartu; všechny údaje níže jsou pouze příklady):
 
 ```json
 {
@@ -123,32 +124,44 @@ data:
 }
 ```
 
-Pro čistě WebRTC instalaci nastavte `sip` na `null`. Pro SIP nahraďte ukázkové údaje skutečnými hodnotami operátora, caller ID a povolenými cílovými čísly. Vygenerujte vlastní operator token, např. `openssl rand -hex 32`. Soubor chraňte pomocí `chmod 600 /path/to/config.json`.
+Pro čistě WebRTC instalaci nastavte `sip` na `null`. Pro SIP nahraďte ukázkové údaje skutečnými hodnotami operátora, caller ID a povolenými cílovými čísly. Nastavte vlastní náhodný operator token a `public_origin` podle skutečné HTTPS adresy konzole. Soubor `files/config.json` musí být součástí zdrojů nadřazeného chartu při renderování; nesmí být vyloučen pomocí `.helmignore`. Pokud chybí nebo je prázdný, renderování skončí chybou.
 
-Instalace z nadřazeného chartu:
+**Deklarativní nasazení – příklad Argo CD Application**
 
-```sh
-helm dependency update ./my-voicebot
+Následující manifest patří do vašeho GitOps projektu (nikoli do šablon nadřazeného chartu). Nahraďte URL privátního deployment repozitáře a případně cestu k chartu. Argo CD musí mít přístup ke zdrojům i OCI dependency; OCI chart a image musí být veřejné, nebo je nutné nastavit odpovídající autentizaci v Argo CD a imagePullSecrets pro Kubernetes.
 
-helm upgrade --install voicebot ./my-voicebot \
-  --namespace voicebot --create-namespace \
-  --set-file configJson=/path/to/config.json
-
-kubectl -n voicebot port-forward svc/voicebot-voicebot 8765:8765
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: voicebot
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://git.example.invalid/deployments.git
+    targetRevision: main
+    path: my-voicebot
+    helm:
+      releaseName: voicebot
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: voicebot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
 ```
 
-Otevřete http://localhost:8765. Pro tento postup musí být veřejně dostupný OCI chart i image, případně musíte být autentizováni v GHCR (a nakonfigurovat imagePullSecrets pro Kubernetes).
+Argo CD při renderování stáhne dependency (případně použije předem připravenou dependency v `charts/`), načte `files/config.json` pomocí `.Files.Get` v nadřazeném chartu a nasadí Secret i aplikaci. Není nutné předávat žádné Helm parametry. Pro jiný GitOps systém použijte stejný nadřazený chart a jeho standardní mechanismus deklarativního nasazení. Service `voicebot-voicebot` je typu ClusterIP na portu 8765; přístup zajistěte vlastním deklarativním HTTPS Ingressem nebo jiným odpovídajícím mechanismem.
 
-Při změně konfigurace zopakujte `helm upgrade --install` se stejným `--set-file` a následně restartujte Deployment, protože aplikace načítá konfiguraci při startu:
-
-```sh
-kubectl -n voicebot rollout restart deployment/voicebot-voicebot
-kubectl -n voicebot rollout status deployment/voicebot-voicebot
-```
+Při změně konfigurace aktualizujte `files/config.json` ve zdroji nasazení a synchronizujte aplikaci. Aplikace načítá konfiguraci jen při startu; samotná změna Secretu v této verzi chartu automaticky nevyvolá rollout. Restart zajistěte deklarativně pomocí správce restartů při změně Secretu (např. Reloader s odpovídající konfigurací v clusteru), nebo jiným mechanismem vašeho deployment systému. 
 
 Tato varianta je alternativou k přímé instalaci výše, nikoli doplňkem k již existujícímu ručně spravovanému Secretu stejného jména. Při více instalacích v jednom namespace zvolte odlišné jméno Secretu přes `voicebot-poc.existingSecret`.
 
-**Bezpečnost:** `--set-file` načte obsah souboru do Helm values. Konfigurace tak bude nejen v aplikačním Secretu, ale také v metadatech Helm release (včetně historie); base64 není šifrování. Omezte RBAC přístup k Secretům a Helm release, zapněte šifrování Secretů v etcd a nevypisujte citlivé hodnoty pomocí `helm get values` nebo `helm template`. Pokud nechcete ukládat credentials do historie Helm, použijte předchozí variantu s externě spravovaným Secretem. Skutečný config.json necommitujte ani nebalte do chartu.
+**Bezpečnost:** Soubor s reálnými credentials nevkládejte do veřejného upstream repozitáře ani veřejného chartu. Soubor je součástí deployment chartu v čitelné podobě a vyrenderovaný Secret obsahuje pouze base64, nikoli šifrování. Chraňte zdroj nasazení, přístup k renderovaným manifestům, Kubernetes Secretům a případným metadatům/historii Helm release. Při použití GitOps zajistěte bezpečné dodání nebo dešifrování souboru před renderováním; samotný privátní Git repozitář není šifrování secrets. Zapněte šifrování Secretů v etcd a omezte RBAC. Pokud požadujete, aby credentials nebyly součástí chartu ani renderovaných manifestů, použijte variantu s externě spravovaným Secretem.
 
 ## Publikace
 
