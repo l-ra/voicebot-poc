@@ -9,13 +9,14 @@
 <section><label>Transport <select id="mode"><option value="webrtc">WebRTC — mikrofon</option><option value="sip" disabled>SIP — telefon</option></select></label>
 <div id="phone" hidden><label>Telefonní číslo (E.164) <input id="destination" type="tel" placeholder="+420…" autocomplete="off"></label><label><input id="consent" type="checkbox"> Mám souhlas volaného s testem.</label></div>
 <button id="start" disabled>Zahájit</button> <button id="stop" disabled>Zavěsit</button>
-<p id="status" role="status">Nepřihlášeno</p><p id="error" role="alert"></p>
+<p id="inbound" role="status"></p><p id="status" role="status">Nepřihlášeno</p><p id="error" role="alert"></p>
 <audio id="audio" autoplay controls hidden></audio><p>Demo kód: <strong id="code">—</strong></p></section>
 <section><h2>Stav backendu</h2><p id="stage">—</p><pre id="log"></pre><pre id="usage"></pre></section>
 <p><small>Audio vede přímo do OpenAI. SIP hovor nelze poslouchat z této konzole. API a telefonní služby jsou placené. Stav se uchovává pouze v paměti.</small></p>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
+let owned=false, inboundEnabled=false, idleTimer=null;
 let auth='', token=null, pc=null, mic=null, dc=null, timer=null, ready=false, busy=false;
 const terminal=new Set(['closed','failed']);
 fetch('/healthz',{cache:'no-store'}).then(r=>r.json()).then(c=>{$('version').textContent=c.version||'local'}).catch(()=>{$('version').textContent='unknown'});
@@ -27,7 +28,7 @@ async function req(path,body,method='GET'){
  if(!r.ok)throw Error(await r.text());return r.json();
 }
 function mediaOff(){if(mic)mic.getTracks().forEach(t=>t.stop());if(dc)dc.close();if(pc)pc.close();mic=pc=dc=null;$('audio').srcObject=null;$('audio').hidden=true}
-function release(){clearTimeout(timer);token=null;mediaOff();buttons()}
+function release(){clearTimeout(timer);token=null;owned=false;mediaOff();buttons()}
 function render(s){
  $('status').textContent=s.mode+' / '+s.connection;
  $('stage').textContent=s.stage+' | '+s.answered+' / 3'+(s.score===null?'':' | skóre '+s.score);
@@ -41,6 +42,16 @@ async function poll(){
  try{const state=await req('/state/'+encodeURIComponent(t));if(token===t)render(state)}catch(e){$('error').textContent=e.message}
  if(token===t)timer=setTimeout(poll,800);
 }
+async function watchIdle(){
+ if(!ready||busy||token)return;
+ try{
+  const a=await req('/active');
+  if(busy||token||!ready)return;
+  const call=a.calls.find(x=>!terminal.has(x.connection));
+  if(call){token=call.token;owned=false;render(call);buttons();poll()}
+ }catch(e){$('error').textContent=e.message}
+}
+idleTimer=setInterval(watchIdle,1200);
 function ice(p){return new Promise((ok,fail)=>{
  if(p.iceGatheringState==='complete')return ok();
  const f=()=>{if(p.iceGatheringState==='complete'){clearTimeout(timeout);p.removeEventListener('icegatheringstatechange',f);ok()}};
@@ -51,7 +62,7 @@ $('mode').onchange=()=>{$('phone').hidden=$('mode').value!=='sip'};
 $('login').onclick=async()=>{
  auth=$('auth').value;busy=true;buttons();
  try{const c=await req('/config');$('auth').value='';$('model').textContent=' '+c.model;$('code').textContent=c.demo_code;
- $('mode').options[1].disabled=!c.sip_enabled;ready=true;$('status').textContent='Připraveno';
+ $('mode').options[1].disabled=!c.sip_enabled;ready=true;inboundEnabled=c.sip_inbound_enabled;$('inbound').textContent=inboundEnabled?'SIP dial-in aktivní — čekám na příchozí hovory.':'SIP dial-in vypnutý';$('status').textContent='Připraveno';
  const a=await req('/active');const call=a.calls.find(x=>!terminal.has(x.connection));
  if(call){token=call.token;render(call);poll()}
  }catch(e){ready=false;$('error').textContent=e.message}finally{busy=false;buttons()}
@@ -70,7 +81,7 @@ $('start').onclick=async()=>{
   mic.getTracks().forEach(t=>pc.addTrack(t,mic));dc=pc.createDataChannel('oai-events');
   await pc.setLocalDescription(await pc.createOffer());await ice(pc);data.sdp=pc.localDescription.sdp;
  }
- const r=await req('/session',data,'POST');token=r.token;
+ const r=await req('/session',data,'POST');token=r.token;owned=true;
  if(mode==='webrtc')await pc.setRemoteDescription({type:'answer',sdp:r.sdp});
  poll();
  }catch(e){
@@ -80,5 +91,5 @@ $('start').onclick=async()=>{
  }finally{busy=false;buttons()}
 };
 $('stop').onclick=async()=>{busy=true;buttons();mediaOff();try{if(token)render(await req('/stop/'+encodeURIComponent(token),{},'POST'))}catch(e){$('error').textContent=e.message}finally{busy=false;buttons()}};
-window.addEventListener('pagehide',()=>{if(token)fetch('/stop/'+encodeURIComponent(token),{method:'POST',headers:{Authorization:'Bearer '+auth},keepalive:true}).catch(()=>{});mediaOff()});
+window.addEventListener('pagehide',()=>{if(token&&owned)fetch('/stop/'+encodeURIComponent(token),{method:'POST',headers:{Authorization:'Bearer '+auth},keepalive:true}).catch(()=>{});mediaOff()});
 </script></body></html>

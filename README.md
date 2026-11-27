@@ -28,7 +28,24 @@ Otevřete http://localhost:8765 (musí odpovídat public_origin), vložte operat
 
 ## SIP
 
-OpenAI provádí signalizaci a přenos zvuku přímo s operátorem, nikoliv přes tento server. Backend volá POST /v1/live/sessions s transport.type=sip a připojuje se na sideband /attach. Zavěšení používá POST /v1/live/sessions/{id}/hangup. Příchozí hovory nejsou součástí 0.2.0. SIP provider musí podporovat TLS, SDES-SRTP a kompatibilní kodeky; funkčnost konkrétního účtu Zadarma nebyla ověřena. Není zapotřebí vlastní veřejný SIP port, webhook ani Asterisk. Dokumentace: https://developers.openai.com/api/docs/guides/voice-sip?api=live
+OpenAI provádí signalizaci a přenos zvuku přímo s operátorem, nikoliv přes tento server. Backend volá POST /v1/live/sessions s transport.type=sip a připojuje se na sideband /attach. Zavěšení používá POST /v1/live/sessions/{id}/hangup. Příchozí hovory podporuje aktuální dev verze (viz níže); původní 0.2.0 pouze dial-out. SIP provider musí podporovat TLS, SDES-SRTP a kompatibilní kodeky; funkčnost konkrétního účtu Zadarma nebyla ověřena. Není zapotřebí vlastní veřejný SIP port, webhook ani Asterisk. Dokumentace: https://developers.openai.com/api/docs/guides/voice-sip?api=live
+
+### Příchozí SIP hovory (dial-in)
+
+Do existujícího files/config.json přidejte samostatnou sekci:
+
+```json
+"sip_inbound": {
+  "enabled": true,
+  "webhook_secret": "whsec_REPLACE_ME"
+}
+```
+
+Skutečný signing secret získáte při registraci webhooku v OpenAI projektu. URL: https://<hostname>/webhooks/openai (stejný hostname jako Ingress). Přihlaste webhook pouze k live.transport.incoming; podporována je i starší událost live.call.incoming. API klíč, webhook a SIP URI musí patřit stejnému projektu. V Zadarma nasměrujte veřejné číslo na externí SIP URI sip:proj_XXXXXXXX@sip.api.openai.com;transport=tls (regionální EU endpoint sip-eu.api.openai.com používejte podle konfigurace projektu). Ověřte kompatibilitu TLS/SRTP a dostupnost GPT-Live SIP pro projekt. Dial-in nepotřebuje sekci sip pro odchozí hovory; ta může být null.
+
+Webhook je veřejný HTTPS POST endpoint, nevyžaduje token operátora, ale ověřuje HMAC-SHA256 nad původním tělem a hlavičkami Standard Webhooks (tolerance 5 minut). Duplicitní delivery ID a session ID jsou evidovány v paměti po 73 hodinách. Po přijetí webhooku backend asynchronně přijme hovor, případně odmítne SIP 486 při obsazenosti. Volající slyší úvod pro příchozí hovor a stejný soutěžní scénář. Konzole po přihlášení automaticky objeví aktivní hovor, i pokud vznikl později. Zavření monitorovací stránky nezavěsí cizí příchozí hovor; ruční tlačítko Zavěsit ano. Platí jeden souběžný hovor napříč všemi transporty a stávající časový limit.
+
+PoC omezení: deduplikace a fronta nejsou perzistentní, restart podu může ztratit rozpracované události a 204 webhook neznamená úspěšný SIP accept. Pro produkci použijte trvalou frontu a idempotentní evidenci. Příchozí číslo není autentizace; SIP hlavičky se nepoužívají k autorizaci. Veřejný dial-in může generovat API náklady, proto použijte testovací číslo a limity projektu/operátora. Ingress a cert-manager musí být funkční před registrací webhooku. Dokumentace: https://developers.openai.com/api/docs/guides/voice-sip?api=live
 
 ## Docker
 
@@ -124,6 +141,7 @@ data:
   "model": "gpt-live-1.1",
   "voice": "marin",
   "max_call_seconds": 300,
+  "sip_inbound": {"enabled": false, "webhook_secret": "whsec_REPLACE_ME"},
   "sip": {
     "provider_url": "sips:sip.example.invalid:5061",
     "username": "REPLACE_ME",

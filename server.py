@@ -1,4 +1,9 @@
 import asyncio
+import base64
+import binascii
+import hashlib
+import hmac
+import re
 import contextlib
 import json
 import os
@@ -81,7 +86,7 @@ class Call:
             if not self.ended:
                 self.status='closing'
                 try:
-                    if self.mode=='sip':
+                    if self.mode in ('sip','sip_inbound'):
                         async with self.app['http'].post(f'{API}/{self.sid}/hangup',headers=self.app['auth'],timeout=ClientTimeout(total=10)) as r:
                             if r.status not in (200,404): raise RuntimeError(f'Hangup HTTP {r.status}')
                     else: await self.send('session.close')
@@ -101,7 +106,7 @@ class Call:
 
 @web.middleware
 async def guard(req, handler):
-    if req.path not in ('/','/healthz'):
+    if req.path not in ('/','/healthz','/webhooks/openai'):
         expected=req.app['cfg']['operator_token']
         supplied=req.headers.get('Authorization','')
         if not secrets.compare_digest(supplied.encode(),('Bearer '+expected).encode()):
@@ -118,7 +123,7 @@ async def index(req): return web.FileResponse(ROOT/'index.html')
 async def health(req): return web.json_response({'ok':True,'version':os.getenv('APP_VERSION','local')})
 async def config(req):
     cfg=req.app['cfg']
-    return web.json_response(dict(model=cfg['model'],demo_code=cfg['quiz_code'],sip_enabled=bool(cfg.get('sip')),max_call_seconds=cfg['max_call_seconds']))
+    return web.json_response(dict(model=cfg['model'],demo_code=cfg['quiz_code'],sip_enabled=bool(cfg.get('sip')),sip_inbound_enabled=cfg.get('sip_inbound',{}).get('enabled',False),max_call_seconds=cfg['max_call_seconds']))
 def session_payload(cfg, t):
     greeting='Po spojení zahaj pozdravem, představ fiktivní demo a zeptej se na souhlas.'
     session=dict(model=cfg['model'],instructions=PROMPT,audio={'output':{'voice':cfg['voice']}},
@@ -127,6 +132,114 @@ def session_payload(cfg, t):
     if t['type']=='webrtc':
         session['client']={'data_channel':{'allowed_client_events':[], 'allowed_server_events':[{'type':'session.started'},{'type':'session.closed'},{'type':'error'}]}}
     return {'session':session,'transport':t}
+
+def inbound_payload(cfg):
+    session=session_payload(cfg,{'type':'sip'})['session']
+    session['type']='live'
+    session['instructions'] += ' Volající zavolal sám. Neříkej, že jsi mu telefonoval. Pozdrav jej jako příchozího účastníka fiktivní soutěže.'
+    session['input'][0]['content'][0]['text']='Zahaj: Dobrý den, dovolali jste se automatizovanému moderátorovi fiktivní soutěže. Chcete se zúčastnit?'
+    return {'session':session}
+
+def verify_webhook(body, headers, secret, now=None):
+    """Standard Webhooks v1 HMAC over the original request bytes."""
+    try:
+        ident=headers['webhook-id']
+        stamp=headers['webhook-timestamp']
+        timestamp=int(stamp)
+        if not ident or abs((time.time() if now is None else now)-timestamp)>300:
+            return False
+        key=base64.b64decode(secret.removeprefix('whsec_'),validate=True)
+        if not key: return False
+        expected=hmac.digest(key,ident.encode()+b'.'+stamp.encode()+b'.'+body,'sha256')
+        for signature in headers['webhook-signature'].split():
+            version,sep,value=signature.partition(',')
+            if sep and version=='v1':
+                try:
+                    if hmac.compare_digest(expected,base64.b64decode(value,validate=True)):
+                        return True
+                except binascii.Error:
+                    continue
+    except (KeyError,ValueError,TypeError,binascii.Error):
+        pass
+    return False
+
+async def inbound_worker(app,sid):
+    """Serialize acceptance with browser/outbound calls; do not trust caller headers."""
+    async with app['start_lock']:
+        if any(not c.ended for c in app['calls'].values()):
+            async with app['http'].post(f'{API}/{sid}/reject',headers=app['auth'],
+                    json={'status_code':486},timeout=ClientTimeout(total=10)) as r:
+                if r.status!=200: raise RuntimeError(f'Reject HTTP {r.status}')
+            return
+        app['calls'].clear()
+        # Reserve the slot before issuing the accept request.
+        call=Call(sid,'sip_inbound',app)
+        call.status='accepting'
+        token=secrets.token_urlsafe(24)
+        app['calls'][token]=call
+        # The operator may see the reservation but cannot stop it during setup:
+        # stop() takes the same start_lock.
+        try:
+            async with app['http'].post(f'{API}/{sid}/accept',headers=app['auth'],
+                    json=inbound_payload(app['cfg']),timeout=ClientTimeout(total=12)) as r:
+                if r.status!=200:
+                    call.status='failed'; call.error=f'Accept HTTP {r.status}'
+                    call.ended=True
+                    return
+            call.status='connected'
+            call.ws=await app['http'].ws_connect(f'{WS}/{sid}/attach',headers=app['auth'],
+                    heartbeat=20,max_msg_size=4*1024*1024)
+            call.task=asyncio.create_task(call.reader())
+        except Exception as exc:
+            call.error='Inbound setup: '+type(exc).__name__
+            # Acceptance may have succeeded even if its response was lost.
+            await call.close()
+            if call.ended:
+                call.status='failed'
+
+async def webhook(req):
+    cfg=req.app['cfg'].get('sip_inbound',{})
+    if not cfg.get('enabled'): raise web.HTTPNotFound()
+    body=await req.read()
+    if not verify_webhook(body,req.headers,cfg['webhook_secret']):
+        raise web.HTTPUnauthorized(text='Invalid webhook signature')
+    try:
+        event=json.loads(body)
+        if not isinstance(event,dict): raise ValueError()
+    except (ValueError,UnicodeError):
+        raise web.HTTPBadRequest(text='Invalid event')
+    if event.get('type') not in ('live.transport.incoming','live.call.incoming'):
+        return web.Response(status=204)
+    data=event.get('data')
+    if not isinstance(data,dict): raise web.HTTPBadRequest(text='Missing event data')
+    if event['type']=='live.transport.incoming' and data.get('type')!='sip':
+        return web.Response(status=204)
+    sid=data.get('session_id')
+    if not isinstance(sid,str) or not re.fullmatch(r'live_[A-Za-z0-9_-]{1,200}',sid):
+        raise web.HTTPBadRequest(text='Invalid session ID')
+    # Deduplicate both webhook delivery and pending session, even across legacy event names.
+    seen=req.app['inbound_seen']; now=time.monotonic()
+    for key,expiry in list(seen.items()):
+        if expiry<=now: del seen[key]
+    keys=('delivery:'+req.headers['webhook-id'],'session:'+sid)
+    if any(key in seen for key in keys): return web.Response(status=204)
+    if len(seen)>=20000 or len(req.app['inbound_jobs'])>=16:
+        raise web.HTTPServiceUnavailable(text='Inbound capacity reached')
+    for key in keys: seen[key]=now+73*3600
+    async def work():
+        try:
+            await inbound_worker(req.app,sid)
+        except Exception as exc:
+            # No credentials or caller data in logs.
+            import logging
+            logging.getLogger(__name__).warning('Inbound decision failed: %s',type(exc).__name__)
+            # Allow webhook retries only if no slot was accepted/reserved for this session.
+            if not any(c.sid==sid for c in req.app['calls'].values()):
+                for key in keys: seen.pop(key,None)
+    job=asyncio.create_task(work())
+    req.app['inbound_jobs'].add(job)
+    job.add_done_callback(req.app['inbound_jobs'].discard)
+    return web.Response(status=204)
 async def start(req):
     try:
         data=await req.json()
@@ -159,18 +272,21 @@ def get_call(req):
     return c
 async def status(req): return web.json_response(get_call(req).state())
 async def stop(req):
-    c=get_call(req); await c.close(); return web.json_response(c.state())
+    async with req.app['start_lock']:
+        c=get_call(req); await c.close(); return web.json_response(c.state())
 async def active(req):
     return web.json_response({'calls':[dict(token=t,**c.state()) for t,c in req.app['calls'].items()]})
 async def lifecycle(app):
     app['http']=ClientSession(timeout=ClientTimeout(total=35))
     app['calls']={}; app['start_lock']=asyncio.Lock()
+    app['inbound_seen']={}; app['inbound_jobs']=set()
     async def reap():
         while True:
             await asyncio.sleep(2)
             for c in list(app['calls'].values()):
                 now=time.monotonic()
                 # Allow time for the spoken farewell; not a playback-complete signal.
+                if c.status=='accepting': continue
                 if not c.ended and (now-c.created>app['cfg']['max_call_seconds'] or
                     (c.finished_at is not None and now-c.finished_at>15) or
                     c.status in ('disconnected','close_failed')):
@@ -178,6 +294,8 @@ async def lifecycle(app):
     task=asyncio.create_task(reap())
     yield
     task.cancel(); await asyncio.gather(task,return_exceptions=True)
+    if app['inbound_jobs']:
+        await asyncio.gather(*list(app['inbound_jobs']),return_exceptions=True)
     for c in app['calls'].values(): await c.close()
     await app['http'].close()
 
@@ -186,7 +304,7 @@ def create_app(cfg):
     app['cfg']=cfg; app['auth']={'Authorization':'Bearer '+cfg['openai_api_key']}
     app.cleanup_ctx.append(lifecycle)
     app.add_routes([web.get('/',index),web.get('/healthz',health),web.get('/config',config),
-        web.post('/session',start),web.get('/active',active),web.get('/state/{token}',status),web.post('/stop/{token}',stop)])
+        web.post('/webhooks/openai',webhook),web.post('/session',start),web.get('/active',active),web.get('/state/{token}',status),web.post('/stop/{token}',stop)])
     return app
 if __name__=='__main__':
     web.run_app(create_app(load()),host=os.getenv('BIND_HOST','127.0.0.1'),port=int(os.getenv('PORT','8765')),access_log=None)

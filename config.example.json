@@ -14,5 +14,9 @@
     "allowed_destinations": [
       "+12025550101"
     ]
+  },
+  "sip_inbound": {
+    "enabled": false,
+    "webhook_secret": "whsec_REPLACE_ME"
   }
 }

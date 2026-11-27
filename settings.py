@@ -1,4 +1,6 @@
 """Local-only runtime settings; never serialize them to clients."""
+import base64
+import binascii
 import json
 import os
 import re
@@ -25,6 +27,19 @@ def load(path=None):
         if not all(isinstance(sip.get(k),str) and sip[k] for k in ('username','password')): raise ValueError('Missing SIP credentials')
         allowed=sip.get('allowed_destinations',[])
         if not isinstance(allowed,list) or not allowed or not all(isinstance(n,str) and PHONE.fullmatch(n) for n in allowed): raise ValueError('Configure allowed_destinations explicitly')
+    inbound=raw.get('sip_inbound',{})
+    if not isinstance(inbound,dict) or type(inbound.get('enabled',False)) is not bool:
+        raise ValueError('sip_inbound must be an object with boolean enabled')
+    if inbound.get('enabled'):
+        secret=inbound.get('webhook_secret','')
+        try:
+            if not isinstance(secret,str) or not secret.startswith('whsec_') or len(base64.b64decode(secret[6:],validate=True))<16:
+                raise ValueError()
+        except (ValueError,binascii.Error):
+            raise ValueError('Invalid sip_inbound.webhook_secret') from None
+        if not raw['public_origin'].startswith('https://'):
+            raise ValueError('Inbound SIP requires a public HTTPS origin')
+    raw['sip_inbound']=inbound
     return raw
 
 def transport(data, cfg):
