@@ -177,6 +177,8 @@ Tato varianta je alternativou k přímé instalaci výše, nikoli doplňkem k ji
 
 ## CI/CD a vydávání verzí
 
+Všechny nové image (dev, neměnné vývojové buildy, release i jejich aliasy) jsou multiplatformní OCI image pro `linux/amd64` (x86-64) a `linux/arm64` (AArch64). GitHub Actions používá Docker Buildx a QEMU pro ARM64 build; před publikací chartu ověřuje přítomnost obou platforem v registry manifestu. Docker a Kubernetes automaticky vyberou správnou architekturu; Helm chart ani konfiguraci není nutné měnit. Starší již publikované verze se zpětně nepřebudovávají.
+
 PR provádí pouze testy. Push do main (nebo workflow_dispatch na main) po úspěšných testech publikuje vývojové artefakty. Git tag vX.Y.Z nebo vX.Y.Z-rc.N spustí řízený release; tag musí být na commitu dosažitelném z main. Soubor VERSION se již nepoužívá. Verze GUI se načítá z /healthz a odpovídá buildu.
 
 | Trigger | Image tag | OCI chart verze |

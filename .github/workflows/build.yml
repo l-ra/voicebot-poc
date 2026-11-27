@@ -67,6 +67,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
       - uses: docker/setup-buildx-action@v3
       - uses: azure/setup-helm@v4
       - name: Registry login
@@ -83,8 +86,14 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           build-args: APP_VERSION=${{ steps.version.outputs.version }}
           tags: ${{ env.IMAGE }}:${{ steps.version.outputs.image_tag }}
+      - name: Verify published image platforms
+        env:
+          IMAGE_TAG: ${{ steps.version.outputs.image_tag }}
+        run: |
+          docker buildx imagetools inspect --raw "$IMAGE:$IMAGE_TAG" | python -c 'import json,sys; p={(m.get("platform",{}).get("os"),m.get("platform",{}).get("architecture")) for m in json.load(sys.stdin)["manifests"]}; required={("linux","amd64"),("linux","arm64")}; assert required <= p, f"Missing platforms: {required-p}"'
       - name: Publish versioned chart
         env:
           VERSION: ${{ steps.version.outputs.version }}
