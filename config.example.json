@@ -19,5 +19,6 @@
     "enabled": false,
     "webhook_secret": "whsec_REPLACE_ME"
   },
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "openai_region": "global"
 }

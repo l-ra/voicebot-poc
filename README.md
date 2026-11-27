@@ -14,6 +14,10 @@ Doplňte OpenAI API klíč, náhodný operator_token, demonstrační kód, model
 
 Nepřidávejte config.json, vlastní Secret manifesty nebo values s citlivými údaji do Git. Kontejner kopíruje výhradně aplikační soubory.
 
+### Regionální OpenAI projekt
+
+Pro projekt US [Storage & Processing] nastavte v config.json (nebo files/config.json v umbrella chartu) `"openai_region": "us"`. Výchozí hodnota global zachovává původní chování; eu je dostupná pro evropský projekt. Aplikace volí všechny Live REST endpointy (create, accept, reject, hangup) a Sideband WebSocket podle regionu: api.openai.com, us.api.openai.com nebo eu.api.openai.com. Nepoužívá fallback do jiného regionu. Při startu vypíše region a URL do provozního logu. Pro US použijte SIP URI sip:proj_XXXXXXXX@sip.api.openai.com;transport=tls a API klíč i webhook secret ze stejného US projektu. Pro EU používejte sip-eu.api.openai.com. Regionální projekt a API hostname musejí odpovídat; samotný region nenahrazuje případné oprávnění k GPT-Live SIP. Viz https://developers.openai.com/api/docs/guides/data-residency a https://developers.openai.com/api/docs/guides/voice-sip.
+
 ## Lokální spuštění
 
 ```sh
@@ -139,6 +143,7 @@ data:
   "operator_token": "REPLACE_WITH_RANDOM_TOKEN_AT_LEAST_24_CHARS",
   "quiz_code": "4826",
   "model": "gpt-live-1.1",
+  "openai_region": "global",
   "voice": "marin",
   "max_call_seconds": 300,
   "sip_inbound": {"enabled": false, "webhook_secret": "whsec_REPLACE_ME"},

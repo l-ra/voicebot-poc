@@ -7,6 +7,14 @@ import re
 from pathlib import Path
 
 PHONE = re.compile(r'\+[1-9][0-9]{6,14}\Z')
+REGION_HOSTS={'global':'api.openai.com','us':'us.api.openai.com','eu':'eu.api.openai.com'}
+
+def openai_endpoints(region):
+    if not isinstance(region,str) or region not in REGION_HOSTS:
+        raise ValueError('openai_region must be global, us or eu')
+    host=REGION_HOSTS[region]
+    return (f'https://{host}/v1/live/sessions',f'wss://{host}/v1/live/sessions')
+
 def load(path=None):
     raw=json.loads(Path(path or os.getenv('VOICEBOT_CONFIG','config.json')).read_text())
     # Explicit deployment configuration overrides the JSON origin, never request headers.
@@ -17,6 +25,8 @@ def load(path=None):
     if len(raw['operator_token'])<24: raise ValueError('operator_token must have at least 24 characters')
     if not re.fullmatch(r'[0-9]{4}',raw['quiz_code']): raise ValueError('quiz_code must be four digits')
     if not re.fullmatch(r'https?://[^/]+',raw['public_origin']): raise ValueError('public_origin must be an origin without path')
+    raw.setdefault('openai_region','global')
+    openai_endpoints(raw['openai_region'])
     raw.setdefault('log_level','INFO')
     if raw['log_level'] not in ('DEBUG','INFO','WARNING','ERROR'): raise ValueError('Invalid log_level')
     raw.setdefault('model','gpt-live-1.1'); raw.setdefault('voice','marin')

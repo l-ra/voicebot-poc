@@ -13,12 +13,10 @@ import uuid
 from pathlib import Path
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from quiz import Quiz, PROMPT
-from settings import load, transport
+from settings import load, transport, openai_endpoints
 from audit import configure, emit, failure, api_response, error_fields, clean
 
 ROOT=Path(__file__).resolve().parent
-API='https://api.openai.com/v1/live/sessions'
-WS='wss://api.openai.com/v1/live/sessions'
 def eid(): return 'evt_'+uuid.uuid4().hex
 
 class Call:
@@ -112,7 +110,7 @@ class Call:
                 emit('call.closing',session_id=self.sid,mode=self.mode)
                 try:
                     if self.mode in ('sip','sip_inbound'):
-                        async with self.app['http'].post(f'{API}/{self.sid}/hangup',headers=self.app['auth'],timeout=ClientTimeout(total=10)) as r:
+                        async with self.app['http'].post(f"{self.app['api_url']}/{self.sid}/hangup",headers=self.app['auth'],timeout=ClientTimeout(total=10)) as r:
                             await api_response('hangup',r,self.app['cfg'],session_id=self.sid)
                             if r.status not in (200,404): raise RuntimeError(f'Hangup HTTP {r.status}')
                     else: await self.send('session.close')
@@ -198,7 +196,7 @@ async def inbound_worker(app,sid):
     async with app['start_lock']:
         if any(not c.ended for c in app['calls'].values()):
             emit('inbound.busy',session_id=sid)
-            async with app['http'].post(f'{API}/{sid}/reject',headers=app['auth'],
+            async with app['http'].post(f"{app['api_url']}/{sid}/reject",headers=app['auth'],
                     json={'status_code':486},timeout=ClientTimeout(total=10)) as r:
                 await api_response('reject',r,app['cfg'],session_id=sid)
                 if r.status!=200: raise RuntimeError(f'Reject HTTP {r.status}')
@@ -212,8 +210,8 @@ async def inbound_worker(app,sid):
         # The operator may see the reservation but cannot stop it during setup:
         # stop() takes the same start_lock.
         try:
-            emit('openai.http.request',operation='accept',session_id=sid,model=app['cfg']['model'])
-            async with app['http'].post(f'{API}/{sid}/accept',headers=app['auth'],
+            emit('openai.http.request',operation='accept',api_url=app['api_url'],session_id=sid,model=app['cfg']['model'])
+            async with app['http'].post(f"{app['api_url']}/{sid}/accept",headers=app['auth'],
                     json=inbound_payload(app['cfg']),timeout=ClientTimeout(total=12)) as r:
                 details=await api_response('accept',r,app['cfg'],session_id=sid)
                 if r.status!=200:
@@ -224,7 +222,7 @@ async def inbound_worker(app,sid):
             call.status='connected'
             emit('inbound.accepted',session_id=sid)
             emit('sideband.attach',session_id=sid)
-            call.ws=await app['http'].ws_connect(f'{WS}/{sid}/attach',headers=app['auth'],
+            call.ws=await app['http'].ws_connect(f"{app['ws_url']}/{sid}/attach",headers=app['auth'],
                     heartbeat=20,max_msg_size=4*1024*1024)
             call.task=asyncio.create_task(call.reader())
         except Exception as exc:
@@ -300,15 +298,15 @@ async def start(req):
         req.app['calls'].clear()
         http=req.app['http']; cfg=req.app['cfg']; call=None
         try:
-            emit('openai.http.request',operation='create_session',mode=t['type'],model=cfg['model'])
-            async with http.post(API,headers=req.app['auth'],json=session_payload(cfg,t)) as r:
+            emit('openai.http.request',operation='create_session',api_url=req.app['api_url'],mode=t['type'],model=cfg['model'])
+            async with http.post(req.app['api_url'],headers=req.app['auth'],json=session_payload(cfg,t)) as r:
                 await api_response('create_session',r,cfg,mode=t['type'])
                 if r.status>=300: raise web.HTTPBadGateway(text=f'OpenAI HTTP {r.status}')
                 body=await r.json()
             sid=body['session']['id']; call=Call(sid,t['type'],req.app)
             token=secrets.token_urlsafe(24); req.app['calls'][token]=call
             emit('sideband.attach',session_id=sid)
-            call.ws=await http.ws_connect(f'{WS}/{sid}/attach',headers=req.app['auth'],heartbeat=20,max_msg_size=4*1024*1024)
+            call.ws=await http.ws_connect(f"{req.app['ws_url']}/{sid}/attach",headers=req.app['auth'],heartbeat=20,max_msg_size=4*1024*1024)
             call.task=asyncio.create_task(call.reader())
             result=dict(token=token,session_id=sid,mode=t['type'])
             if t['type']=='webrtc': result['sdp']=body['transport']['sdp']
@@ -330,7 +328,7 @@ async def active(req):
     return web.json_response({'calls':[dict(token=t,**c.state()) for t,c in req.app['calls'].items()]})
 async def lifecycle(app):
     cfg=app['cfg']
-    emit('service.started',version=os.getenv('APP_VERSION','local'),model=cfg['model'],sip_outbound=bool(cfg.get('sip')),sip_inbound=cfg.get('sip_inbound',{}).get('enabled',False),log_level=cfg.get('log_level','INFO'),max_call_seconds=cfg['max_call_seconds'])
+    emit('service.started',openai_region=cfg.get('openai_region','global'),api_url=app['api_url'],ws_url=app['ws_url'],version=os.getenv('APP_VERSION','local'),model=cfg['model'],sip_outbound=bool(cfg.get('sip')),sip_inbound=cfg.get('sip_inbound',{}).get('enabled',False),log_level=cfg.get('log_level','INFO'),max_call_seconds=cfg['max_call_seconds'])
     app['http']=ClientSession(timeout=ClientTimeout(total=35))
     app['calls']={}; app['start_lock']=asyncio.Lock()
     app['inbound_seen']={}; app['inbound_jobs']=set()
@@ -357,6 +355,7 @@ async def lifecycle(app):
 
 def create_app(cfg):
     app=web.Application(middlewares=[guard],client_max_size=150000)
+    app['api_url'], app['ws_url']=openai_endpoints(cfg.get('openai_region','global'))
     app['cfg']=cfg; app['auth']={'Authorization':'Bearer '+cfg['openai_api_key']}
     app.cleanup_ctx.append(lifecycle)
     app.add_routes([web.get('/',index),web.get('/healthz',health),web.get('/config',config),
