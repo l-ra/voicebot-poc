@@ -5,3 +5,4 @@
 !index.html
 !requirements.txt
 !Dockerfile
+!audit.py

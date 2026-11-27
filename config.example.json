@@ -18,5 +18,6 @@
   "sip_inbound": {
     "enabled": false,
     "webhook_secret": "whsec_REPLACE_ME"
-  }
+  },
+  "log_level": "INFO"
 }

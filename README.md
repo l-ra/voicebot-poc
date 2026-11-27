@@ -193,6 +193,18 @@ Tato varianta je alternativou k přímé instalaci výše, nikoli doplňkem k ji
 
 **Bezpečnost:** Soubor s reálnými credentials nevkládejte do veřejného upstream repozitáře ani veřejného chartu. Soubor je součástí deployment chartu v čitelné podobě a vyrenderovaný Secret obsahuje pouze base64, nikoli šifrování. Chraňte zdroj nasazení, přístup k renderovaným manifestům, Kubernetes Secretům a případným metadatům/historii Helm release. Při použití GitOps zajistěte bezpečné dodání nebo dešifrování souboru před renderováním; samotný privátní Git repozitář není šifrování secrets. Zapněte šifrování Secretů v etcd a omezte RBAC. Pokud požadujete, aby credentials nebyly součástí chartu ani renderovaných manifestů, použijte variantu s externě spravovaným Secretem.
 
+## Provozní logy a diagnostika
+
+Aplikace zapisuje strukturované JSON logy na stdout kontejneru. Výchozí úroveň INFO poskytuje základní audit (start, webhook, přijetí/odmítnutí hovoru, změny stavu, delegace, zavěšení). WARNING/ERROR zachytí problémy; DEBUG přidává typy Sideband událostí a odeslaných zpráv. Nastavení v files/config.json:
+
+```json
+"log_level": "DEBUG"
+```
+
+Po změně restartujte pod. Logy získáte v Kubernetes například přes kubectl -n voicebot logs deployment/voicebot-voicebot -f nebo v GUI clusteru. Pro HTTP 401 při accept hledejte event openai.http.response, operation accept, http_status, request_id, error_type, error_code a error_message. Chyba znamená, že webhook dorazil, ale OpenAI odmítlo API operaci; zkontrolujte klíč, jeho oprávnění a shodu projektu. Samotné logování autorizaci neopravuje. Při chybě WebSocketu se zaznamená typ výjimky, HTTP status (je-li dostupný) a místo v kódu.
+
+Nikdy se úmyslně neloguje celé tělo requestu/response, Authorization, SIP heslo, soutěžní kód, telefonní čísla, SDP, audio ani přepis. Strukturované chybové zprávy poskytovatele jsou omezené a redigované podle známých citlivých hodnot a vzorů; mohou přesto obsahovat neočekávané údaje poskytovatele. Omezte přístup k logům a jejich retenci. Audit není neměnný bezpečnostní audit ani perzistentní úložiště; retenci zajišťuje infrastruktura.
+
 ## CI/CD a vydávání verzí
 
 Všechny nové image (dev, neměnné vývojové buildy, release i jejich aliasy) jsou multiplatformní OCI image pro `linux/amd64` (x86-64) a `linux/arm64` (AArch64). GitHub Actions používá Docker Buildx a QEMU pro ARM64 build; před publikací chartu ověřuje přítomnost obou platforem v registry manifestu. Docker a Kubernetes automaticky vyberou správnou architekturu; Helm chart ani konfiguraci není nutné měnit. Starší již publikované verze se zpětně nepřebudovávají.

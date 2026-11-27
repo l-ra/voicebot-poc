@@ -17,6 +17,8 @@ def load(path=None):
     if len(raw['operator_token'])<24: raise ValueError('operator_token must have at least 24 characters')
     if not re.fullmatch(r'[0-9]{4}',raw['quiz_code']): raise ValueError('quiz_code must be four digits')
     if not re.fullmatch(r'https?://[^/]+',raw['public_origin']): raise ValueError('public_origin must be an origin without path')
+    raw.setdefault('log_level','INFO')
+    if raw['log_level'] not in ('DEBUG','INFO','WARNING','ERROR'): raise ValueError('Invalid log_level')
     raw.setdefault('model','gpt-live-1.1'); raw.setdefault('voice','marin')
     raw.setdefault('max_call_seconds',300)
     if type(raw['max_call_seconds']) is not int or not 30<=raw['max_call_seconds']<=600: raise ValueError('max_call_seconds must be 30–600')
