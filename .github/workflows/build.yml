@@ -23,6 +23,19 @@ jobs:
       - run: node --check /tmp/voicebot.js
       - uses: azure/setup-helm@v4
       - run: helm lint helm/voicebot-poc && helm template voicebot helm/voicebot-poc > /tmp/voicebot.yaml
+      - name: Validate ingress and origin rendering
+        run: |
+          helm template voicebot helm/voicebot-poc --set ingress.enabled=true --set ingress.hostname=voicebot.example.org --set ingress.className=nginx > /tmp/ingress.yaml
+          grep -F 'value: "https://voicebot.example.org"' /tmp/ingress.yaml
+          grep -F 'cert-manager.io/cluster-issuer: letsencrypt-prod' /tmp/ingress.yaml
+          grep -F 'host: "voicebot.example.org"' /tmp/ingress.yaml
+          grep -F 'secretName: "voicebot-voicebot-tls"' /tmp/ingress.yaml
+          ! grep -F 'VOICEBOT_PUBLIC_ORIGIN' /tmp/voicebot.yaml
+          ! grep -F 'kind: Ingress' /tmp/voicebot.yaml
+          helm template voicebot helm/voicebot-poc --set ingress.enabled=true --set ingress.hostname=voicebot.example.org --set ingress.tls.enabled=false --set ingress.certManager.enabled=false > /tmp/http.yaml
+          grep -F 'value: "http://voicebot.example.org"' /tmp/http.yaml
+          if helm template voicebot helm/voicebot-poc --set ingress.enabled=true > /dev/null 2>&1; then exit 1; fi
+          if helm template voicebot helm/voicebot-poc --set ingress.enabled=true --set ingress.hostname=voicebot.example.org --set ingress.tls.enabled=false > /dev/null 2>&1; then exit 1; fi
   publish:
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')))
     needs: test

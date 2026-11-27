@@ -1,0 +1,39 @@
+{{- if .Values.ingress.enabled }}
+{{- $host := include "voicebot.ingressHostname" . }}
+{{- $annotations := deepCopy .Values.ingress.annotations }}
+{{- if .Values.ingress.certManager.enabled }}
+{{- if not .Values.ingress.tls.enabled }}
+{{- fail "ingress.certManager.enabled requires ingress.tls.enabled" }}
+{{- end }}
+{{- $_ := set $annotations "cert-manager.io/cluster-issuer" (required "ingress.certManager.clusterIssuer is required" .Values.ingress.certManager.clusterIssuer) }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-voicebot
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | default (printf "%s-voicebot-tls" .Release.Name) | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-voicebot
+                port:
+                  name: http
+{{- end }}

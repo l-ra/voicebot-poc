@@ -7,6 +7,9 @@ from pathlib import Path
 PHONE = re.compile(r'\+[1-9][0-9]{6,14}\Z')
 def load(path=None):
     raw=json.loads(Path(path or os.getenv('VOICEBOT_CONFIG','config.json')).read_text())
+    # Explicit deployment configuration overrides the JSON origin, never request headers.
+    if 'VOICEBOT_PUBLIC_ORIGIN' in os.environ:
+        raw['public_origin'] = os.environ['VOICEBOT_PUBLIC_ORIGIN']
     for key in ('openai_api_key','operator_token','quiz_code','public_origin'):
         if not isinstance(raw.get(key),str) or not raw[key]: raise ValueError(f'Missing {key}')
     if len(raw['operator_token'])<24: raise ValueError('operator_token must have at least 24 characters')

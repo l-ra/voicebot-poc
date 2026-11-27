@@ -10,7 +10,7 @@ chmod 600 config.json
 python -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
-Doplňte OpenAI API klíč, náhodný operator_token, demonstrační kód, model, hlas, public_origin (přesná adresa konzole bez koncového lomítka) a SIP trunk. Pro WebRTC-only smažte objekt sip nebo nastavte null. SIP vyžaduje provider_url ve formátu sips:host:5061, Digest username/password, povolené caller ID a přesný seznam allowed_destinations v E.164. Žádné skutečné přihlašovací heslo účastníka se nevyžaduje. Operator token je autentizace konzole; nejedná se o soutěžní kód.
+Doplňte OpenAI API klíč, náhodný operator_token, demonstrační kód, model, hlas, public_origin (přesná adresa konzole bez koncového lomítka; při zapnutém Ingressu se nastavuje automaticky a v JSON není nutný) a SIP trunk. Pro WebRTC-only smažte objekt sip nebo nastavte null. SIP vyžaduje provider_url ve formátu sips:host:5061, Digest username/password, povolené caller ID a přesný seznam allowed_destinations v E.164. Žádné skutečné přihlašovací heslo účastníka se nevyžaduje. Operator token je autentizace konzole; nejedná se o soutěžní kód.
 
 Nepřidávejte config.json, vlastní Secret manifesty nebo values s citlivými údaji do Git. Kontejner kopíruje výhradně aplikační soubory.
 
@@ -53,7 +53,7 @@ helm upgrade --install voicebot oci://ghcr.io/l-ra/charts/voicebot-poc \
 kubectl -n voicebot port-forward svc/voicebot-voicebot 8765:8765
 ```
 
-Alternativně instalujte lokální chart: helm upgrade --install voicebot ./helm/voicebot-poc -n voicebot. Secret musí existovat před instalací. Chart záměrně používá ClusterIP, jednu repliku (stav v paměti), Recreate strategii, non-root a read-only filesystem. Pro vzdálený přístup použijte vlastní HTTPS Ingress a nastavte public_origin. WebRTC vyžaduje bezpečný browser origin. Po změně Secretu restartujte Deployment. Nezveřejňujte konzoli bez HTTPS a přístupové kontroly.
+Alternativně instalujte lokální chart: helm upgrade --install voicebot ./helm/voicebot-poc -n voicebot. Secret musí existovat před instalací. Chart záměrně používá ClusterIP, jednu repliku (stav v paměti), Recreate strategii, non-root a read-only filesystem. Pro vzdálený přístup použijte vestavěný HTTPS Ingress v aktuálním dev chartu (viz níže); starší release 0.2.0 jej ještě neobsahuje. WebRTC vyžaduje bezpečný browser origin. Po změně Secretu restartujte Deployment. Nezveřejňujte konzoli bez HTTPS a přístupové kontroly.
 
 ### Alternativa: vlastní nadřazený chart s jednou dependency
 
@@ -78,7 +78,7 @@ type: application
 version: 0.1.0
 dependencies:
   - name: voicebot-poc
-    version: 0.2.0
+    version: 0.0.0-dev
     repository: oci://ghcr.io/l-ra/charts
 ```
 
@@ -87,7 +87,20 @@ dependencies:
 ```yaml
 voicebot-poc:
   existingSecret: voicebot-config
+  ingress:
+    enabled: true
+    className: nginx
+    hostname: voicebot.example.org
+    tls:
+      enabled: true
+    certManager:
+      enabled: true
+      clusterIssuer: letsencrypt-prod
 ```
+
+Hostname se definuje pouze v values.yaml. Chart jej použije v pravidle Ingressu, TLS hosts a v proměnné prostředí VOICEBOT_PUBLIC_ORIGIN. Aplikace načte JSON ze Secretu a přepíše efektivní public_origin touto hodnotou před validací. Původní JSON v Secretu se nemění. Při zapnutém TLS bude výsledkem https://voicebot.example.org. Pokud je Ingress vypnutý, je nadále nutné zadat public_origin v JSON (např. http://localhost:8765 pro port-forward).
+
+Předpoklady: funkční Ingress controller, DNS záznam hostname směřující na controller, nainstalovaný cert-manager s ingress-shim a existující ClusterIssuer letsencrypt-prod nakonfigurovaný pro Let's Encrypt. Chart cert-manager ani ClusterIssuer neinstaluje; název issueru a ingressClass lze přizpůsobit clusteru. Pro HTTP-01 musí být challenge dostupná z internetu; alternativně použijte DNS-01. TLS Secret vytvoří cert-manager automaticky. Vlastní existující TLS Secret lze použít přes ingress.tls.secretName a ingress.certManager.enabled: false. Pro čisté HTTP je nutné vypnout TLS i certManager (WebRTC mimo localhost vyžaduje HTTPS). HTTPS přesměrování nastavte podle používaného controlleru pomocí ingress.annotations.
 
 **templates/secret.yaml**
 
@@ -110,7 +123,6 @@ data:
   "quiz_code": "4826",
   "model": "gpt-live-1.1",
   "voice": "marin",
-  "public_origin": "http://localhost:8765",
   "max_call_seconds": 300,
   "sip": {
     "provider_url": "sips:sip.example.invalid:5061",
@@ -124,7 +136,7 @@ data:
 }
 ```
 
-Pro čistě WebRTC instalaci nastavte `sip` na `null`. Pro SIP nahraďte ukázkové údaje skutečnými hodnotami operátora, caller ID a povolenými cílovými čísly. Nastavte vlastní náhodný operator token a `public_origin` podle skutečné HTTPS adresy konzole. Soubor `files/config.json` musí být součástí zdrojů nadřazeného chartu při renderování; nesmí být vyloučen pomocí `.helmignore`. Pokud chybí nebo je prázdný, renderování skončí chybou.
+Pro čistě WebRTC instalaci nastavte `sip` na `null`. Pro SIP nahraďte ukázkové údaje skutečnými hodnotami operátora, caller ID a povolenými cílovými čísly. Nastavte vlastní náhodný operator token. Při zapnutém Ingressu `public_origin` v JSON vynechte; bez Ingressu jej doplňte. Soubor `files/config.json` musí být součástí zdrojů nadřazeného chartu při renderování; nesmí být vyloučen pomocí `.helmignore`. Pokud chybí nebo je prázdný, renderování skončí chybou.
 
 **Deklarativní nasazení – příklad Argo CD Application**
 
@@ -155,7 +167,7 @@ spec:
       - CreateNamespace=true
 ```
 
-Argo CD při renderování stáhne dependency (případně použije předem připravenou dependency v `charts/`), načte `files/config.json` pomocí `.Files.Get` v nadřazeném chartu a nasadí Secret i aplikaci. Není nutné předávat žádné Helm parametry. Pro jiný GitOps systém použijte stejný nadřazený chart a jeho standardní mechanismus deklarativního nasazení. Service `voicebot-voicebot` je typu ClusterIP na portu 8765; přístup zajistěte vlastním deklarativním HTTPS Ingressem nebo jiným odpovídajícím mechanismem.
+Argo CD při renderování stáhne dependency (případně použije předem připravenou dependency v `charts/`), načte `files/config.json` pomocí `.Files.Get` v nadřazeném chartu a nasadí Secret i aplikaci. Není nutné předávat žádné Helm parametry. Pro jiný GitOps systém použijte stejný nadřazený chart a jeho standardní mechanismus deklarativního nasazení. Service `voicebot-voicebot` je typu ClusterIP na portu 8765; vestavěný Ingress ji zpřístupní na hostname z values.yaml. Pro produkční nasazení používejte konkrétní neměnnou verzi chartu obsahující tuto funkci.
 
 Při změně konfigurace aktualizujte `files/config.json` ve zdroji nasazení a synchronizujte aplikaci. Aplikace načítá konfiguraci jen při startu; samotná změna Secretu v této verzi chartu automaticky nevyvolá rollout. Restart zajistěte deklarativně pomocí správce restartů při změně Secretu (např. Reloader s odpovídající konfigurací v clusteru), nebo jiným mechanismem vašeho deployment systému. 
 

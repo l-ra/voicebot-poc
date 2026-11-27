@@ -12,3 +12,16 @@ resources:
   limits:
     cpu: 500m
     memory: 256Mi
+
+# One hostname for routing, TLS and the application's public_origin.
+ingress:
+  enabled: false
+  className: ""
+  hostname: ""
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: "" # defaults to <release>-voicebot-tls
+  certManager:
+    enabled: true
+    clusterIssuer: letsencrypt-prod
