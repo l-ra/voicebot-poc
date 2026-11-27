@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voicebot PoC</title>
+<style>
+:root{color-scheme:light dark;font:16px system-ui}body{max-width:760px;margin:2rem auto;padding:0 1rem}section{border:1px solid #8886;border-radius:12px;padding:1rem;margin:1rem 0}label{display:block;margin:.5rem 0}input,button,select{font:inherit;padding:.5rem;border-radius:6px;border:1px solid #888}input{max-width:90%}button{cursor:pointer}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere}#error{color:#d55}small{opacity:.8}audio{width:100%}
+</style></head><body>
+<h1>Hlasová soutěž <small>0.2.0</small></h1>
+<p>Fiktivní test soutěže. Používejte pouze vlastní čísla nebo čísla osob, které s testem souhlasily.</p>
+<section><label>Token operátora <input id="auth" type="password" autocomplete="off"></label><button id="login">Připojit konzoli</button><span id="model"></span></section>
+<section><label>Transport <select id="mode"><option value="webrtc">WebRTC — mikrofon</option><option value="sip" disabled>SIP — telefon</option></select></label>
+<div id="phone" hidden><label>Telefonní číslo (E.164) <input id="destination" type="tel" placeholder="+420…" autocomplete="off"></label><label><input id="consent" type="checkbox"> Mám souhlas volaného s testem.</label></div>
+<button id="start" disabled>Zahájit</button> <button id="stop" disabled>Zavěsit</button>
+<p id="status" role="status">Nepřihlášeno</p><p id="error" role="alert"></p>
+<audio id="audio" autoplay controls hidden></audio><p>Demo kód: <strong id="code">—</strong></p></section>
+<section><h2>Stav backendu</h2><p id="stage">—</p><pre id="log"></pre><pre id="usage"></pre></section>
+<p><small>Audio vede přímo do OpenAI. SIP hovor nelze poslouchat z této konzole. API a telefonní služby jsou placené. Stav se uchovává pouze v paměti.</small></p>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+let auth='', token=null, pc=null, mic=null, dc=null, timer=null, ready=false, busy=false;
+const terminal=new Set(['closed','failed']);
+function buttons(){ $('start').disabled=!ready||busy||!!token; $('stop').disabled=busy||!token; $('login').disabled=busy||!!token; $('mode').disabled=busy||!!token; }
+async function req(path,body,method='GET'){
+ const headers={Authorization:'Bearer '+auth};
+ if(body!==undefined)headers['Content-Type']='application/json';
+ const r=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),cache:'no-store'});
+ if(!r.ok)throw Error(await r.text());return r.json();
+}
+function mediaOff(){if(mic)mic.getTracks().forEach(t=>t.stop());if(dc)dc.close();if(pc)pc.close();mic=pc=dc=null;$('audio').srcObject=null;$('audio').hidden=true}
+function release(){clearTimeout(timer);token=null;mediaOff();buttons()}
+function render(s){
+ $('status').textContent=s.mode+' / '+s.connection;
+ $('stage').textContent=s.stage+' | '+s.answered+' / 3'+(s.score===null?'':' | skóre '+s.score);
+ $('log').textContent=s.log.join('\n');$('usage').textContent=s.usage?JSON.stringify(s.usage,null,2):'';
+ $('error').textContent=s.error||'';
+ if(terminal.has(s.connection))release();
+}
+async function poll(){
+ if(!token)return;
+ const t=token;
+ try{const state=await req('/state/'+encodeURIComponent(t));if(token===t)render(state)}catch(e){$('error').textContent=e.message}
+ if(token===t)timer=setTimeout(poll,800);
+}
+function ice(p){return new Promise((ok,fail)=>{
+ if(p.iceGatheringState==='complete')return ok();
+ const f=()=>{if(p.iceGatheringState==='complete'){clearTimeout(timeout);p.removeEventListener('icegatheringstatechange',f);ok()}};
+ const timeout=setTimeout(()=>{p.removeEventListener('icegatheringstatechange',f);fail(Error('ICE timeout'))},10000);
+ p.addEventListener('icegatheringstatechange',f);
+})}
+$('mode').onchange=()=>{$('phone').hidden=$('mode').value!=='sip'};
+$('login').onclick=async()=>{
+ auth=$('auth').value;busy=true;buttons();
+ try{const c=await req('/config');$('auth').value='';$('model').textContent=' '+c.model;$('code').textContent=c.demo_code;
+ $('mode').options[1].disabled=!c.sip_enabled;ready=true;$('status').textContent='Připraveno';
+ const a=await req('/active');const call=a.calls.find(x=>!terminal.has(x.connection));
+ if(call){token=call.token;render(call);poll()}
+ }catch(e){ready=false;$('error').textContent=e.message}finally{busy=false;buttons()}
+};
+$('start').onclick=async()=>{
+ busy=true;buttons();$('error').textContent='';$('log').textContent='';$('usage').textContent='';$('status').textContent='Připojuji…';
+ try{
+ const mode=$('mode').value;let data={mode};
+ if(mode==='sip'){
+  if(!$('consent').checked)throw Error('Potvrďte souhlas volaného');
+  data.destination=$('destination').value.trim();
+ }else{
+  if(!navigator.mediaDevices?.getUserMedia)throw Error('Mikrofon vyžaduje HTTPS nebo localhost');
+  pc=new RTCPeerConnection();pc.ontrack=e=>{$('audio').hidden=false;$('audio').srcObject=new MediaStream([e.track]);$('audio').play().catch(()=>{})};
+  mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+  mic.getTracks().forEach(t=>pc.addTrack(t,mic));dc=pc.createDataChannel('oai-events');
+  await pc.setLocalDescription(await pc.createOffer());await ice(pc);data.sdp=pc.localDescription.sdp;
+ }
+ const r=await req('/session',data,'POST');token=r.token;
+ if(mode==='webrtc')await pc.setRemoteDescription({type:'answer',sdp:r.sdp});
+ poll();
+ }catch(e){
+ $('error').textContent=e.message;mediaOff();
+ if(token){try{render(await req('/stop/'+encodeURIComponent(token),{},'POST'))}catch{}if(token)poll()}
+ else {try{const a=await req('/active');const c=a.calls.find(x=>!terminal.has(x.connection));if(c){token=c.token;render(c);poll()}}catch{}}
+ }finally{busy=false;buttons()}
+};
+$('stop').onclick=async()=>{busy=true;buttons();mediaOff();try{if(token)render(await req('/stop/'+encodeURIComponent(token),{},'POST'))}catch(e){$('error').textContent=e.message}finally{busy=false;buttons()}};
+window.addEventListener('pagehide',()=>{if(token)fetch('/stop/'+encodeURIComponent(token),{method:'POST',headers:{Authorization:'Bearer '+auth},keepalive:true}).catch(()=>{});mediaOff()});
+</script></body></html>

@@ -1,0 +1,18 @@
+{
+  "openai_api_key": "REPLACE_ME",
+  "operator_token": "REPLACE_WITH_RANDOM_TOKEN_AT_LEAST_24_CHARS",
+  "quiz_code": "4826",
+  "model": "gpt-live-1.1",
+  "voice": "marin",
+  "public_origin": "http://localhost:8765",
+  "max_call_seconds": 300,
+  "sip": {
+    "provider_url": "sips:sip.example.invalid:5061",
+    "username": "REPLACE_ME",
+    "password": "REPLACE_ME",
+    "caller_number": "+12025550100",
+    "allowed_destinations": [
+      "+12025550101"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+config.json
+config.*.json
+!config.example.json
+.env*
+*.secret.yaml
+*.local.yaml
+.venv/
+__pycache__/
+*.pyc
+*.tgz

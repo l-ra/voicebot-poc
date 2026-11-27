@@ -1,0 +1,14 @@
+# Deployment defaults only; credentials are supplied through an existing Secret.
+image:
+  repository: ghcr.io/l-ra/voicebot-poc
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+existingSecret: voicebot-config
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

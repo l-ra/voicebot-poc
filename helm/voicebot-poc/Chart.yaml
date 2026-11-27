@@ -1,0 +1,9 @@
+apiVersion: v2
+name: voicebot-poc
+description: GPT-Live voice quiz via WebRTC and outbound SIP
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+home: https://github.com/l-ra/voicebot-poc
+sources:
+  - https://github.com/l-ra/voicebot-poc
