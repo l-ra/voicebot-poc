@@ -210,6 +210,19 @@ Po změně restartujte pod. Logy získáte v Kubernetes například přes kubect
 
 Nikdy se úmyslně neloguje celé tělo requestu/response, Authorization, SIP heslo, soutěžní kód, telefonní čísla, SDP, audio ani přepis. Strukturované chybové zprávy poskytovatele jsou omezené a redigované podle známých citlivých hodnot a vzorů; mohou přesto obsahovat neočekávané údaje poskytovatele. Omezte přístup k logům a jejich retenci. Audit není neměnný bezpečnostní audit ani perzistentní úložiště; retenci zajišťuje infrastruktura.
 
+### Diagnostika regionálního HTTP 404
+
+Pro dočasné ladění nastavte v JSON konfiguraci:
+
+```json
+"openai_region": "us",
+"log_level": "DEBUG",
+"diagnostic_models_probe": true,
+"diagnostic_body_preview": true
+```
+
+Po restartu se jednou provede GET /v1/models na nastaveném regionálním hostu se stejným API klíčem. Probe je asynchronní, nevytváří hlasovou relaci a neblokuje start; úspěch nepotvrzuje dostupnost Live SIP accept ani oprávnění k němu. Logy openai.probe.request, openai.probe.result a openai.http.response obsahují výsledek; seznam modelů se neloguje. HTTP odpovědi obsahují výslednou URL bez query, vybrané gateway hlavičky (Server, CF-Ray, Content-Type, request ID, Via aj.), redirect metadata a u accept také dobu odezvy. REST požadavky nenásledují redirect automaticky, aby nedošlo k přesměrování regionálního API klíče; případný Location se zaznamená bez query. Chybová neJSON odpověď má délku a SHA-256 omezeného prefixu; opt-in diagnostic_body_preview přidá redigovaný náhled do 1200 znaků. Čtení chybového těla je omezené na 16 KiB plus jeden detekční byte. Náhled může obsahovat neznámé citlivé údaje poskytovatele, proto jej zapínejte pouze při ladění, před sdílením logy zkontrolujte a poté obě diagnostické volby vypněte. Hlavičky Authorization, Cookie a Set-Cookie se nelogují. Chybný podpis webhooku zaznamená pouze přítomnost hlaviček a stáří timestampu, nikoli podpis ani tělo.
+
 ## CI/CD a vydávání verzí
 
 Všechny nové image (dev, neměnné vývojové buildy, release i jejich aliasy) jsou multiplatformní OCI image pro `linux/amd64` (x86-64) a `linux/arm64` (AArch64). GitHub Actions používá Docker Buildx a QEMU pro ARM64 build; před publikací chartu ověřuje přítomnost obou platforem v registry manifestu. Docker a Kubernetes automaticky vyberou správnou architekturu; Helm chart ani konfiguraci není nutné měnit. Starší již publikované verze se zpětně nepřebudovávají.

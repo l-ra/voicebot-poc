@@ -14,7 +14,7 @@ from pathlib import Path
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from quiz import Quiz, PROMPT
 from settings import load, transport, openai_endpoints
-from audit import configure, emit, failure, api_response, error_fields, clean
+from audit import configure, emit, failure, api_response, error_fields, clean, safe_url, response_headers
 
 ROOT=Path(__file__).resolve().parent
 def eid(): return 'evt_'+uuid.uuid4().hex
@@ -110,7 +110,7 @@ class Call:
                 emit('call.closing',session_id=self.sid,mode=self.mode)
                 try:
                     if self.mode in ('sip','sip_inbound'):
-                        async with self.app['http'].post(f"{self.app['api_url']}/{self.sid}/hangup",headers=self.app['auth'],timeout=ClientTimeout(total=10)) as r:
+                        async with self.app['http'].post(f"{self.app['api_url']}/{self.sid}/hangup",headers=self.app['auth'],allow_redirects=False,timeout=ClientTimeout(total=10)) as r:
                             await api_response('hangup',r,self.app['cfg'],session_id=self.sid)
                             if r.status not in (200,404): raise RuntimeError(f'Hangup HTTP {r.status}')
                     else: await self.send('session.close')
@@ -191,12 +191,29 @@ def verify_webhook(body, headers, secret, now=None):
         pass
     return False
 
+async def probe_models(app):
+    cfg=app['cfg']
+    url=app['api_url'].removesuffix('/live/sessions')+'/models'
+    started=time.monotonic()
+    emit('openai.probe.request',method='GET',url=url)
+    try:
+        async with app['http'].get(url,headers=app['auth'],allow_redirects=False,
+                timeout=ClientTimeout(total=10)) as r:
+            await api_response('models_probe',r,cfg,elapsed_ms=round((time.monotonic()-started)*1000))
+            if r.status==200:
+                data=await r.json()
+                models=data.get('data',[])
+                emit('openai.probe.result',model_count=len(models),configured_model_present=any(
+                    isinstance(m,dict) and m.get('id')==cfg['model'] for m in models))
+    except Exception as exc:
+        failure('openai.probe.failed',exc,url=url)
+
 async def inbound_worker(app,sid):
     """Serialize acceptance with browser/outbound calls; do not trust caller headers."""
     async with app['start_lock']:
         if any(not c.ended for c in app['calls'].values()):
             emit('inbound.busy',session_id=sid)
-            async with app['http'].post(f"{app['api_url']}/{sid}/reject",headers=app['auth'],
+            async with app['http'].post(f"{app['api_url']}/{sid}/reject",headers=app['auth'],allow_redirects=False,
                     json={'status_code':486},timeout=ClientTimeout(total=10)) as r:
                 await api_response('reject',r,app['cfg'],session_id=sid)
                 if r.status!=200: raise RuntimeError(f'Reject HTTP {r.status}')
@@ -210,10 +227,12 @@ async def inbound_worker(app,sid):
         # The operator may see the reservation but cannot stop it during setup:
         # stop() takes the same start_lock.
         try:
-            emit('openai.http.request',operation='accept',api_url=app['api_url'],session_id=sid,model=app['cfg']['model'])
-            async with app['http'].post(f"{app['api_url']}/{sid}/accept",headers=app['auth'],
+            url=f"{app['api_url']}/{sid}/accept"
+            started=time.monotonic()
+            emit('openai.http.request',operation='accept',method='POST',url=url,session_id=sid,model=app['cfg']['model'],payload_keys=sorted(inbound_payload(app['cfg'])['session']))
+            async with app['http'].post(url,headers=app['auth'],allow_redirects=False,
                     json=inbound_payload(app['cfg']),timeout=ClientTimeout(total=12)) as r:
-                details=await api_response('accept',r,app['cfg'],session_id=sid)
+                details=await api_response('accept',r,app['cfg'],session_id=sid,elapsed_ms=round((time.monotonic()-started)*1000))
                 if r.status!=200:
                     call.status='failed'; call.error=f'Accept HTTP {r.status}'
                     if details.get('request_id'): call.error+=' / request_id='+details['request_id']
@@ -240,7 +259,7 @@ async def webhook(req):
         raise web.HTTPNotFound()
     body=await req.read()
     if not verify_webhook(body,req.headers,cfg['webhook_secret']):
-        emit('webhook.signature_invalid','WARNING',body_bytes=len(body))
+        emit('webhook.signature_invalid','WARNING',body_bytes=len(body),header_id_present=bool(req.headers.get('webhook-id')),header_signature_present=bool(req.headers.get('webhook-signature')),header_timestamp_present=bool(req.headers.get('webhook-timestamp')),timestamp_age_seconds=round(time.time()-int(req.headers['webhook-timestamp'])) if re.fullmatch(r'[0-9]{1,12}',req.headers.get('webhook-timestamp','')) else None)
         raise web.HTTPUnauthorized(text='Invalid webhook signature')
     try:
         event=json.loads(body)
@@ -299,7 +318,7 @@ async def start(req):
         http=req.app['http']; cfg=req.app['cfg']; call=None
         try:
             emit('openai.http.request',operation='create_session',api_url=req.app['api_url'],mode=t['type'],model=cfg['model'])
-            async with http.post(req.app['api_url'],headers=req.app['auth'],json=session_payload(cfg,t)) as r:
+            async with http.post(req.app['api_url'],headers=req.app['auth'],allow_redirects=False,json=session_payload(cfg,t)) as r:
                 await api_response('create_session',r,cfg,mode=t['type'])
                 if r.status>=300: raise web.HTTPBadGateway(text=f'OpenAI HTTP {r.status}')
                 body=await r.json()
@@ -345,7 +364,10 @@ async def lifecycle(app):
                     emit('call.auto_hangup',session_id=c.sid,status=c.status)
                     await c.close()
     task=asyncio.create_task(reap())
+    probe=asyncio.create_task(probe_models(app)) if cfg.get('diagnostic_models_probe',False) else None
     yield
+    if probe:
+        probe.cancel(); await asyncio.gather(probe,return_exceptions=True)
     task.cancel(); await asyncio.gather(task,return_exceptions=True)
     if app['inbound_jobs']:
         await asyncio.gather(*list(app['inbound_jobs']),return_exceptions=True)

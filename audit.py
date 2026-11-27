@@ -1,5 +1,7 @@
 """Structured operational logs. Never log raw request bodies, audio or transcripts."""
+import hashlib
 import json
+from urllib.parse import urlsplit, urlunsplit
 import logging
 import re
 import sys
@@ -50,19 +52,62 @@ def error_fields(body,cfg):
         if value is not None: result['error_'+key]=value
     return result
 
+SAFE_HEADERS=('server','content-type','content-length','date','cf-ray','via','x-request-id',
+              'openai-processing-ms','openai-version','retry-after','x-envoy-upstream-service-time',
+              'x-cache','cf-cache-status','x-amzn-trace-id','x-ms-request-id')
+
+def safe_url(url,cfg):
+    if url is None: return None
+    try:
+        p=urlsplit(str(url))
+        # Never log userinfo, query strings or fragments.
+        host=p.hostname or ''
+        if p.port: host+=f':{p.port}'
+        return clean(urlunsplit((p.scheme,host,p.path,'','')),cfg)
+    except ValueError: return '[invalid URL]'
+
+def response_headers(headers,cfg):
+    # aiohttp headers are case-insensitive; plain dicts in tests may not be.
+    h={str(k).lower():v for k,v in headers.items()}
+    result={k:clean(h[k],cfg) for k in SAFE_HEADERS if k in h}
+    if 'location' in h: result['location']=safe_url(h['location'],cfg)
+    return result
+
+async def bounded_read(stream,limit=16384):
+    chunks=[]; remaining=limit+1
+    while remaining:
+        chunk=await stream.read(remaining)
+        if not chunk: break
+        chunks.append(chunk); remaining-=len(chunk)
+    data=b''.join(chunks)
+    return data[:limit],len(data)>limit
+
 async def api_response(operation,response,cfg,**fields):
+    headers=response_headers(response.headers,cfg)
     info=dict(operation=operation,http_status=response.status,
-              request_id=clean(response.headers.get('x-request-id'),cfg),
+              request_id=headers.get('x-request-id'),
+              response_url=safe_url(getattr(response,'url',None),cfg),
+              response_headers=headers,
+              redirects=[dict(status=r.status,url=safe_url(r.url,cfg),
+                              headers=response_headers(r.headers,cfg))
+                         for r in getattr(response,'history',())],
               **fields)
-    if response.status>=400:
-        # Only known structured error fields; bounded read, no raw HTML or unknown body.
+    if response.status>=300:
         try:
-            raw=await response.content.read(16385)
-            if len(raw)<=16384:
-                info.update(error_fields(json.loads(raw),cfg))
-            else: info['error_body']='oversized'
-        except (ValueError,UnicodeError): info['error_body']='not_json'
-        except Exception as exc: info['error_body']=type(exc).__name__
+            raw,truncated=await bounded_read(response.content)
+            info.update(error_body_bytes=len(raw),error_body_truncated=truncated,
+                        error_body_prefix_sha256=hashlib.sha256(raw).hexdigest())
+            try:
+                parsed=json.loads(raw)
+                info.update(error_fields(parsed,cfg))
+                info['error_body']='json'
+            except (ValueError,UnicodeError):
+                info['error_body']='not_json'
+                # Explicit opt-in; gateway response could echo unknown sensitive data.
+                if cfg.get('diagnostic_body_preview',False):
+                    info['error_body_preview']=clean(raw.decode('utf-8',errors='replace'),cfg)
+        except Exception as exc:
+            info['error_body']=type(exc).__name__
         emit('openai.http.response','ERROR',**info)
     else:
         emit('openai.http.response','INFO',**info)

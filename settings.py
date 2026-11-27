@@ -27,6 +27,9 @@ def load(path=None):
     if not re.fullmatch(r'https?://[^/]+',raw['public_origin']): raise ValueError('public_origin must be an origin without path')
     raw.setdefault('openai_region','global')
     openai_endpoints(raw['openai_region'])
+    for key in ('diagnostic_models_probe','diagnostic_body_preview'):
+        raw.setdefault(key,False)
+        if type(raw[key]) is not bool: raise ValueError(f'{key} must be boolean')
     raw.setdefault('log_level','INFO')
     if raw['log_level'] not in ('DEBUG','INFO','WARNING','ERROR'): raise ValueError('Invalid log_level')
     raw.setdefault('model','gpt-live-1.1'); raw.setdefault('voice','marin')

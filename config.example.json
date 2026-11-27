@@ -20,5 +20,7 @@
     "webhook_secret": "whsec_REPLACE_ME"
   },
   "log_level": "INFO",
-  "openai_region": "global"
+  "openai_region": "global",
+  "diagnostic_models_probe": false,
+  "diagnostic_body_preview": false
 }
