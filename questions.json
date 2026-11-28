@@ -1,0 +1,602 @@
+[
+  {
+    "id": "q001",
+    "question": "Která planeta je nejblíže Slunci?",
+    "answer": "Merkur",
+    "hint": "Jméno římského posla bohů."
+  },
+  {
+    "id": "q002",
+    "question": "Která planeta je největší ve Sluneční soustavě?",
+    "answer": "Jupiter",
+    "hint": "Má velkou rudou skvrnu."
+  },
+  {
+    "id": "q003",
+    "question": "Jak se jmenuje přirozená družice Země?",
+    "answer": "Měsíc",
+    "hint": "Vidíme její fáze."
+  },
+  {
+    "id": "q004",
+    "question": "Která planeta je známá jako rudá planeta?",
+    "answer": "Mars",
+    "hint": "Jméno římského boha války."
+  },
+  {
+    "id": "q005",
+    "question": "Jak se nazývá naše galaxie?",
+    "answer": "Mléčná dráha",
+    "hint": "Na tmavé obloze připomíná bělavý pás."
+  },
+  {
+    "id": "q006",
+    "question": "Jak se nazývá hvězda nejbližší Zemi?",
+    "answer": "Slunce",
+    "hint": "Je středem naší soustavy."
+  },
+  {
+    "id": "q007",
+    "question": "Jaké je hlavní město Kanady?",
+    "answer": "Ottawa",
+    "hint": "Leží v provincii Ontario."
+  },
+  {
+    "id": "q008",
+    "question": "Jaké je hlavní město Austrálie?",
+    "answer": "Canberra",
+    "hint": "Bylo vybráno jako kompromis mezi Sydney a Melbourne."
+  },
+  {
+    "id": "q009",
+    "question": "Jaké je hlavní město Portugalska?",
+    "answer": "Lisabon",
+    "hint": "Leží u ústí řeky Tejo."
+  },
+  {
+    "id": "q010",
+    "question": "Jaké je hlavní město Finska?",
+    "answer": "Helsinky",
+    "hint": "Leží na pobřeží Finského zálivu."
+  },
+  {
+    "id": "q011",
+    "question": "Jaké je hlavní město Norska?",
+    "answer": "Oslo",
+    "hint": "Leží u stejnojmenného fjordu."
+  },
+  {
+    "id": "q012",
+    "question": "Jaké je hlavní město Polska?",
+    "answer": "Varšava",
+    "hint": "Protéká jím Visla."
+  },
+  {
+    "id": "q013",
+    "question": "Jaké je hlavní město Maďarska?",
+    "answer": "Budapešť",
+    "hint": "Vzniklo spojením Budína a Pešti."
+  },
+  {
+    "id": "q014",
+    "question": "Jaké je hlavní město Slovenska?",
+    "answer": "Bratislava",
+    "hint": "Leží na Dunaji u hranic s Rakouskem."
+  },
+  {
+    "id": "q015",
+    "question": "Jaké je hlavní město Japonska?",
+    "answer": "Tokio",
+    "hint": "Dříve se nazývalo Edo."
+  },
+  {
+    "id": "q016",
+    "question": "Jaké je hlavní město Islandu?",
+    "answer": "Reykjavík",
+    "hint": "Jeho jméno znamená kouřová zátoka."
+  },
+  {
+    "id": "q017",
+    "question": "Jaké je hlavní město Egypta?",
+    "answer": "Káhira",
+    "hint": "Leží na Nilu nedaleko Gízy."
+  },
+  {
+    "id": "q018",
+    "question": "Jaké je hlavní město Argentiny?",
+    "answer": "Buenos Aires",
+    "hint": "Název znamená dobré větry."
+  },
+  {
+    "id": "q019",
+    "question": "Jaké je hlavní město Brazílie?",
+    "answer": "Brasília",
+    "hint": "Bylo plánovitě vystavěno ve vnitrozemí."
+  },
+  {
+    "id": "q020",
+    "question": "Jaké je hlavní město Řecka?",
+    "answer": "Atény",
+    "hint": "Stojí zde Akropolis."
+  },
+  {
+    "id": "q021",
+    "question": "Který oceán je rozlohou největší?",
+    "answer": "Tichý oceán (Pacifik)",
+    "hint": "Leží mezi Asií a Amerikou."
+  },
+  {
+    "id": "q022",
+    "question": "Která řeka protéká Prahou?",
+    "answer": "Vltava",
+    "hint": "Smetana jí věnoval symfonickou báseň."
+  },
+  {
+    "id": "q023",
+    "question": "Která řeka protéká Londýnem?",
+    "answer": "Temže",
+    "hint": "Přes ni vede Tower Bridge."
+  },
+  {
+    "id": "q024",
+    "question": "Která řeka protéká Paříží?",
+    "answer": "Seina",
+    "hint": "Na jejím ostrově stojí Notre-Dame."
+  },
+  {
+    "id": "q025",
+    "question": "Která řeka protéká Římem?",
+    "answer": "Tibera",
+    "hint": "Jmenuje se podobně jako císař Tiberius."
+  },
+  {
+    "id": "q026",
+    "question": "Jak se jmenuje nejvyšší hora České republiky?",
+    "answer": "Sněžka",
+    "hint": "Leží v Krkonoších."
+  },
+  {
+    "id": "q027",
+    "question": "Jak se jmenuje nejvyšší hora světa podle nadmořské výšky?",
+    "answer": "Mount Everest",
+    "hint": "Leží na hranici Nepálu a Číny."
+  },
+  {
+    "id": "q028",
+    "question": "Na kterém kontinentu leží Sahara?",
+    "answer": "Afrika",
+    "hint": "Na severu sousedí se Středozemním mořem."
+  },
+  {
+    "id": "q029",
+    "question": "Ve kterém státě stojí šikmá věž v Pise?",
+    "answer": "Itálie",
+    "hint": "Pisa leží v Toskánsku."
+  },
+  {
+    "id": "q030",
+    "question": "Ve kterém státě stojí Tádž Mahal?",
+    "answer": "Indie",
+    "hint": "Stojí ve městě Ágra."
+  },
+  {
+    "id": "q031",
+    "question": "Který stát má na vlajce javorový list?",
+    "answer": "Kanada",
+    "hint": "Je severním sousedem USA."
+  },
+  {
+    "id": "q032",
+    "question": "Který stát má tvar připomínající vysokou botu?",
+    "answer": "Itálie",
+    "hint": "Jeho součástí je Sicílie."
+  },
+  {
+    "id": "q033",
+    "question": "Jak se jmenuje největší ostrov světa, nepočítáme-li kontinenty?",
+    "answer": "Grónsko",
+    "hint": "Je autonomní součástí Dánského království."
+  },
+  {
+    "id": "q034",
+    "question": "Jaké moře omývá chorvatské pobřeží?",
+    "answer": "Jaderské moře (Jadran)",
+    "hint": "Na protějším břehu je Itálie."
+  },
+  {
+    "id": "q035",
+    "question": "Jak se jmenuje průliv mezi Evropou a Afrikou u Španělska?",
+    "answer": "Gibraltarský průliv",
+    "hint": "Na severním břehu je stejnojmenná skála."
+  },
+  {
+    "id": "q036",
+    "question": "Kdo napsal divadelní hru R.U.R.?",
+    "answer": "Karel Čapek",
+    "hint": "Jeho bratr Josef byl malíř."
+  },
+  {
+    "id": "q037",
+    "question": "Kdo napsal Babičku?",
+    "answer": "Božena Němcová",
+    "hint": "Autorka se narodila jako Barbora Panklová."
+  },
+  {
+    "id": "q038",
+    "question": "Kdo napsal Máj?",
+    "answer": "Karel Hynek Mácha",
+    "hint": "Báseň začíná slovy Byl pozdní večer."
+  },
+  {
+    "id": "q039",
+    "question": "Kdo napsal Osudy dobrého vojáka Švejka za světové války?",
+    "answer": "Jaroslav Hašek",
+    "hint": "Působil v československých legiích."
+  },
+  {
+    "id": "q040",
+    "question": "Kdo napsal román Malý princ?",
+    "answer": "Antoine de Saint-Exupéry",
+    "hint": "Byl francouzským letcem."
+  },
+  {
+    "id": "q041",
+    "question": "Kdo napsal román 1984?",
+    "answer": "George Orwell",
+    "hint": "Napsal také Farmu zvířat."
+  },
+  {
+    "id": "q042",
+    "question": "Kdo napsal Hobita?",
+    "answer": "J. R. R. Tolkien",
+    "hint": "Vytvořil Středozem."
+  },
+  {
+    "id": "q043",
+    "question": "Kdo napsal Romea a Julii?",
+    "answer": "William Shakespeare",
+    "hint": "Anglický dramatik ze Stratfordu."
+  },
+  {
+    "id": "q044",
+    "question": "Kdo napsal Dona Quijota?",
+    "answer": "Miguel de Cervantes",
+    "hint": "Španělský autor z přelomu 16. a 17. století."
+  },
+  {
+    "id": "q045",
+    "question": "Kdo napsal Robinsona Crusoa?",
+    "answer": "Daniel Defoe",
+    "hint": "Anglický spisovatel, jehož příjmení začíná na D."
+  },
+  {
+    "id": "q046",
+    "question": "Kdo složil cyklus Má vlast?",
+    "answer": "Bedřich Smetana",
+    "hint": "Zkomponoval i Prodanou nevěstu."
+  },
+  {
+    "id": "q047",
+    "question": "Kdo složil symfonii Z Nového světa?",
+    "answer": "Antonín Dvořák",
+    "hint": "Působil na konzervatoři v New Yorku."
+  },
+  {
+    "id": "q048",
+    "question": "Kdo složil operu Kouzelná flétna?",
+    "answer": "Wolfgang Amadeus Mozart",
+    "hint": "Narodil se v Salcburku."
+  },
+  {
+    "id": "q049",
+    "question": "Kdo složil Čtvero ročních dob?",
+    "answer": "Antonio Vivaldi",
+    "hint": "Benátský skladatel a houslista."
+  },
+  {
+    "id": "q050",
+    "question": "Kdo namaloval Monu Lisu?",
+    "answer": "Leonardo da Vinci",
+    "hint": "Renesanční vynálezce a malíř."
+  },
+  {
+    "id": "q051",
+    "question": "Kdo namaloval obraz Hvězdná noc z roku 1889?",
+    "answer": "Vincent van Gogh",
+    "hint": "Nizozemský malíř, namaloval také slunečnice."
+  },
+  {
+    "id": "q052",
+    "question": "Kdo namaloval obraz Guernica?",
+    "answer": "Pablo Picasso",
+    "hint": "Španělský průkopník kubismu."
+  },
+  {
+    "id": "q053",
+    "question": "Kdo byl prvním prezidentem Československa?",
+    "answer": "Tomáš Garrigue Masaryk",
+    "hint": "Příjmení začíná na M."
+  },
+  {
+    "id": "q054",
+    "question": "Kdo založil Karlovu univerzitu?",
+    "answer": "Karel IV.",
+    "hint": "Říká se mu Otec vlasti."
+  },
+  {
+    "id": "q055",
+    "question": "Ve kterém roce vzniklo samostatné Československo?",
+    "answer": "1918",
+    "hint": "Bylo to na konci první světové války."
+  },
+  {
+    "id": "q056",
+    "question": "Ve kterém roce začala druhá světová válka v Evropě?",
+    "answer": "1939",
+    "hint": "Začala německým útokem na Polsko."
+  },
+  {
+    "id": "q057",
+    "question": "Ve kterém roce skončila druhá světová válka?",
+    "answer": "1945",
+    "hint": "Bylo to šest let po jejím začátku v Evropě."
+  },
+  {
+    "id": "q058",
+    "question": "Ve kterém roce padla Berlínská zeď?",
+    "answer": "1989",
+    "hint": "Ve stejném roce proběhla sametová revoluce."
+  },
+  {
+    "id": "q059",
+    "question": "Kdo byl prvním člověkem ve vesmíru?",
+    "answer": "Jurij Gagarin",
+    "hint": "Letěl lodí Vostok 1."
+  },
+  {
+    "id": "q060",
+    "question": "Kdo jako první vstoupil na povrch Měsíce?",
+    "answer": "Neil Armstrong",
+    "hint": "Velitel mise Apollo 11."
+  },
+  {
+    "id": "q061",
+    "question": "Ve kterém roce přistála mise Apollo 11 na Měsíci?",
+    "answer": "1969",
+    "hint": "Bylo to na konci šedesátých let."
+  },
+  {
+    "id": "q062",
+    "question": "Jaký chemický prvek má značku Fe?",
+    "answer": "Železo",
+    "hint": "Základní složka oceli."
+  },
+  {
+    "id": "q063",
+    "question": "Jaký chemický prvek má značku Au?",
+    "answer": "Zlato",
+    "hint": "Drahý kov typicky žluté barvy."
+  },
+  {
+    "id": "q064",
+    "question": "Jaký chemický prvek má značku Ag?",
+    "answer": "Stříbro",
+    "hint": "Jeho latinský název je argentum."
+  },
+  {
+    "id": "q065",
+    "question": "Jaký chemický prvek má značku O?",
+    "answer": "Kyslík",
+    "hint": "Potřebujeme ho k dýchání."
+  },
+  {
+    "id": "q066",
+    "question": "Jaký chemický prvek má značku H?",
+    "answer": "Vodík",
+    "hint": "Nejlehčí prvek."
+  },
+  {
+    "id": "q067",
+    "question": "Jaký chemický prvek má značku C?",
+    "answer": "Uhlík",
+    "hint": "Je základem organických sloučenin."
+  },
+  {
+    "id": "q068",
+    "question": "Jaký chemický prvek má značku Na?",
+    "answer": "Sodík",
+    "hint": "Je součástí kuchyňské soli."
+  },
+  {
+    "id": "q069",
+    "question": "Jaký chemický prvek má značku He?",
+    "answer": "Helium",
+    "hint": "Plní se jím létající balónky."
+  },
+  {
+    "id": "q070",
+    "question": "Jaký je chemický vzorec vody?",
+    "answer": "H2O",
+    "hint": "Dva atomy vodíku a jeden atom kyslíku."
+  },
+  {
+    "id": "q071",
+    "question": "Jaký je chemický vzorec oxidu uhličitého?",
+    "answer": "CO2",
+    "hint": "Jeden uhlík a dva kyslíky."
+  },
+  {
+    "id": "q072",
+    "question": "Jaký plyn tvoří největší objemový podíl zemské atmosféry?",
+    "answer": "Dusík",
+    "hint": "Tvoří přibližně 78 procent vzduchu."
+  },
+  {
+    "id": "q073",
+    "question": "Jak se jmenuje proces, při kterém rostliny využívají světlo k tvorbě organických látek?",
+    "answer": "Fotosyntéza",
+    "hint": "Název začíná na foto."
+  },
+  {
+    "id": "q074",
+    "question": "Jak se nazývá orgán, který pumpuje krev?",
+    "answer": "Srdce",
+    "hint": "Má čtyři dutiny."
+  },
+  {
+    "id": "q075",
+    "question": "Jaký orgán v lidském těle produkuje inzulin?",
+    "answer": "Slinivka břišní (pankreas)",
+    "hint": "Leží za žaludkem."
+  },
+  {
+    "id": "q076",
+    "question": "Jak se jmenuje největší orgán lidského těla podle plochy?",
+    "answer": "Kůže",
+    "hint": "Pokrývá povrch těla."
+  },
+  {
+    "id": "q077",
+    "question": "Kolik chromozomů má běžná lidská somatická buňka?",
+    "answer": "46",
+    "hint": "Jsou uspořádány do 23 párů."
+  },
+  {
+    "id": "q078",
+    "question": "Jaký orgán umožňuje člověku především výměnu kyslíku a oxidu uhličitého při dýchání?",
+    "answer": "Plíce",
+    "hint": "Jsou v hrudníku."
+  },
+  {
+    "id": "q079",
+    "question": "Který savec je podle hmotnosti největším žijícím živočichem?",
+    "answer": "Plejtvák obrovský",
+    "hint": "Je to kytovec."
+  },
+  {
+    "id": "q080",
+    "question": "Jak se nazývá mládě koně?",
+    "answer": "Hříbě",
+    "hint": "Slovo začíná na H."
+  },
+  {
+    "id": "q081",
+    "question": "Jak se nazývá samice jelena evropského?",
+    "answer": "Laň",
+    "hint": "Název má tři písmena."
+  },
+  {
+    "id": "q082",
+    "question": "Jak se nazývá skupina živočichů, mezi něž patří žáby a mloci?",
+    "answer": "Obojživelníci",
+    "hint": "Žijí část života ve vodě i na souši."
+  },
+  {
+    "id": "q083",
+    "question": "Kolik nohou má dospělý pavouk?",
+    "answer": "8",
+    "hint": "Má čtyři páry."
+  },
+  {
+    "id": "q084",
+    "question": "Kolik stran má pravidelný šestiúhelník?",
+    "answer": "6",
+    "hint": "Číslo je už v názvu."
+  },
+  {
+    "id": "q085",
+    "question": "Kolik stupňů má součet vnitřních úhlů rovinného trojúhelníku?",
+    "answer": "180",
+    "hint": "Polovina plného úhlu."
+  },
+  {
+    "id": "q086",
+    "question": "Kolik sekund má jedna minuta?",
+    "answer": "60",
+    "hint": "Stejný počet jako minut v hodině."
+  },
+  {
+    "id": "q087",
+    "question": "Kolik milimetrů má jeden metr?",
+    "answer": "1000",
+    "hint": "Mili znamená tisícinu."
+  },
+  {
+    "id": "q088",
+    "question": "Kolik gramů má jeden kilogram?",
+    "answer": "1000",
+    "hint": "Kilo znamená tisíc."
+  },
+  {
+    "id": "q089",
+    "question": "Jak se nazývá jednotka elektrického odporu?",
+    "answer": "Ohm",
+    "hint": "Její značkou je řecké omega."
+  },
+  {
+    "id": "q090",
+    "question": "Jak se nazývá jednotka elektrického proudu v soustavě SI?",
+    "answer": "Ampér",
+    "hint": "Značí se A."
+  },
+  {
+    "id": "q091",
+    "question": "Jak se nazývá jednotka síly v soustavě SI?",
+    "answer": "Newton",
+    "hint": "Nese jméno anglického fyzika."
+  },
+  {
+    "id": "q092",
+    "question": "Jak se nazývá jednotka frekvence?",
+    "answer": "Hertz",
+    "hint": "Značí se Hz."
+  },
+  {
+    "id": "q093",
+    "question": "Jak se nazývá jednotka výkonu v soustavě SI?",
+    "answer": "Watt",
+    "hint": "Nese jméno skotského vynálezce."
+  },
+  {
+    "id": "q094",
+    "question": "Jak se jmenuje přístroj pro měření atmosférického tlaku?",
+    "answer": "Barometr",
+    "hint": "Název začíná na baro."
+  },
+  {
+    "id": "q095",
+    "question": "Jak se jmenuje přístroj pro měření teploty?",
+    "answer": "Teploměr (termometr)",
+    "hint": "Používá se při měření horečky."
+  },
+  {
+    "id": "q096",
+    "question": "Jak se nazývá přechod kapaliny na plyn z jejího povrchu?",
+    "answer": "Vypařování (odpařování)",
+    "hint": "Díky němu schne mokré prádlo."
+  },
+  {
+    "id": "q097",
+    "question": "Jak se nazývá přechod pevné látky přímo na plyn?",
+    "answer": "Sublimace",
+    "hint": "Typickým příkladem je suchý led."
+  },
+  {
+    "id": "q098",
+    "question": "Jak se nazývá přechod plynu na kapalinu?",
+    "answer": "Kondenzace (zkapalnění)",
+    "hint": "Vzniká při něm rosa."
+  },
+  {
+    "id": "q099",
+    "question": "Kdo formuloval speciální teorii relativity?",
+    "answer": "Albert Einstein",
+    "hint": "Je spojován s rovnicí E = mc²."
+  },
+  {
+    "id": "q100",
+    "question": "Jak se nazývá číslo vyjadřující poměr obvodu kruhu k jeho průměru?",
+    "answer": "Pí (π)",
+    "hint": "Přibližně 3,14."
+  }
+]

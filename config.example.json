@@ -1,7 +1,6 @@
 {
   "openai_api_key": "REPLACE_ME",
   "operator_token": "REPLACE_WITH_RANDOM_TOKEN_AT_LEAST_24_CHARS",
-  "quiz_code": "4826",
   "model": "gpt-live-1.1",
   "voice": "marin",
   "public_origin": "http://localhost:8765",
@@ -10,17 +9,12 @@
     "provider_url": "sips:sip.example.invalid:5061",
     "username": "REPLACE_ME",
     "password": "REPLACE_ME",
-    "caller_number": "+12025550100",
-    "allowed_destinations": [
-      "+12025550101"
-    ]
-  },
-  "sip_inbound": {
-    "enabled": false,
-    "webhook_secret": "whsec_REPLACE_ME"
+    "caller_number": "+420602123456"
   },
   "log_level": "INFO",
   "openai_region": "global",
   "diagnostic_models_probe": false,
-  "diagnostic_body_preview": false
+  "diagnostic_body_preview": false,
+  "decision_model": "gpt-6-luna",
+  "decision_min_confidence": 0.8
 }

@@ -1,3 +1,35 @@
+# Voicebot PoC — česká hlasová soutěž
+
+GPT-Live přes WebRTC nebo odchozí SIP, nativní Decisions delegace (gpt-6-luna), 100 otevřených otázek a deterministický stavový automat. Příchozí SIP je v této verzi deaktivován (HTTP 404 na webhooku), i se starou konfigurací.
+
+## Konfigurace
+
+Zkopírujte config.example.json do config.json a doplňte klíče, public_origin, případně SIP trunk. Staré quiz_code, sip.allowed_destinations a sip_inbound jsou ignorovány. Podporována jsou česká devítimístná čísla s +420, 00420 nebo bez předvolby; skutečná dostupnost a cena závisí na SIP poskytovateli. Volejte pouze se souhlasem příjemce. Jeden současný hovor, max_call_seconds omezuje dobu; 15 sekund po závěrečném commentary se ukončí hovor (nejde o potvrzení přehrání).
+
+Nastavte openai_region na global/us/eu podle projektu. Vyžaduje funkční Live API a api.decisions.write. decision_model výchozí gpt-6-luna, decision_min_confidence 0.8 (nízká jistota neztrácí pokus). Volitelně diagnostic_models_probe a diagnostic_body_preview. Náhled chyb může obsahovat neznámé citlivé údaje; před sdílením jej zkontrolujte.
+
+## Soutěž
+
+Souhlas → dobrovolné jméno (backend ho neukládá) → tři náhodné otázky → jedna nápověda na otázku → po neúspěchu s nápovědou konec. Po výhře smyšlená absurdní cena a rozhodnutí o jejím přijetí. Nativní Decisions dostává přepis automaticky; backend přijímá jen klasifikace. Každý krok má jedinečný název klasifikátoru, koreluje se delegace, zamítají se zastaralé výsledky a čeká se na session.updated před commentary. Při chybě aktualizace se hra bezpečně ukončí. Pravděpodobnost není zárukou správnosti. Jméno může zůstat v kontextu OpenAI; backend neukládá přepis ani audio.
+
+Konzole ukládá operator_token do localStorage po úspěšné autentizaci; odhlášení ho smaže. Používejte HTTPS, důvěryhodný origin a vlastní prohlížeč. Token je dostupný JS stejného originu. API klíč a SIP heslo se neposílají prohlížeči.
+
+## Lokální spuštění
+
+```sh
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python -m unittest -v
+python server.py
+```
+
+Otevřete http://localhost:8765.
+
+## Nasazení
+
+OCI image ghcr.io/l-ra/voicebot-poc, chart oci://ghcr.io/l-ra/charts/voicebot-poc. Neměnné dev verze 0.0.0-dev.RUN.ATTEMPT; alias dev a chart 0.0.0-dev. Tagy vX.Y.Z publikují release. amd64/arm64. Příklad umbrella chartu a ingress konfigurace níže zůstává zachován.
+
 # Voicebot PoC
 
 Demonstrátor hlasové soutěže GPT-Live. Zachovává WebRTC a přidává nativní odchozí SIP. Soutěžní stav, otázky A/B/C a hodnocení řídí deterministický Python backend; žádný druhý LLM. Jde o fiktivní demo bez výhry. Používejte pouze vlastní telefonní čísla nebo čísla osob, které předem souhlasily.
@@ -141,7 +173,6 @@ data:
 {
   "openai_api_key": "REPLACE_ME",
   "operator_token": "REPLACE_WITH_RANDOM_TOKEN_AT_LEAST_24_CHARS",
-  "quiz_code": "4826",
   "model": "gpt-live-1.1",
   "openai_region": "global",
   "voice": "marin",

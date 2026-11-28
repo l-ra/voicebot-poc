@@ -1,45 +1,66 @@
 import unittest
-from quiz import Quiz, BANK, code_from, choice_from
+from quiz import Quiz,BANK
 from settings import transport
 from server import session_payload
 
 class TestQuiz(unittest.TestCase):
-    def test_full(self):
-        q=Quiz(questions=BANK[:3])
-        q.advance('Ano, chci se zúčastnit'); self.assertEqual(q.stage,'code')
-        q.advance('čtyři osm dva šest'); self.assertEqual(q.stage,'question')
-        q.advance('béčko');q.advance('Porto');q.advance('C')
-        self.assertEqual(q.snapshot()['score'],2)
-        q.advance('A');self.assertEqual(len(q.answers),3)
-    def test_decline(self):
-        q=Quiz();q.advance('Ne, děkuji');self.assertEqual(q.reason,'declined')
-    def test_wrong_code(self):
-        q=Quiz();q.advance('ano');q.advance('nevím');self.assertEqual(q.attempts,0)
-        for _ in range(3):q.advance('1234')
-        self.assertEqual(q.reason,'verification_failed')
-    def test_unclear(self):
-        q=Quiz();q.advance('ano');q.advance('4826');q.advance('A nebo B')
-        self.assertEqual(q.snapshot()['answered'],0);q.advance('chci skončit');self.assertEqual(q.reason,'cancelled')
-    def test_parsing(self):
-        self.assertEqual(code_from('Kód je 4 8 2 6'),'4826')
-        self.assertIsNone(code_from('1234 nebo 5678'))
-        self.assertEqual(choice_from('Myslím, že B, Merkur',BANK[0][1]),1)
-        self.assertIsNone(choice_from('A, nebo B',BANK[0][1]))
+    def game(self):
+        q=Quiz(questions=BANK[:3]); q.advance('yes'); q.advance('ready'); return q
+    def test_bank(self):
+        self.assertEqual(len(BANK),100)
+        self.assertEqual(len({q['id'] for q in BANK}),100)
+        self.assertEqual(len({q['question'] for q in BANK}),100)
+        self.assertTrue(all(q['answer'] and q['hint'] for q in BANK))
+    def test_win(self):
+        q=self.game()
+        for _ in range(3): q.advance('correct')
+        self.assertEqual(q.stage,'prize')
+        self.assertEqual(q.snapshot()['score'],3)
+        self.assertIn('v šest po válce u Kalicha',q.advance('accept'))
+        self.assertEqual(q.reason,'accepted')
+    def test_refusal(self):
+        q=Quiz();q.advance('no');self.assertEqual(q.reason,'declined')
+        q=self.game()
+        for _ in range(3): q.advance('correct')
+        q.advance('decline');self.assertEqual(q.reason,'prize_declined')
+    def test_hint(self):
+        q=self.game(); name=q.decision_name
+        q.advance('incorrect');self.assertTrue(q.hinted)
+        self.assertNotEqual(name,q.decision_name)
+        q.advance('unclear');q.advance('repeat_question')
+        self.assertEqual(q.stage,'question')
+        q.advance('correct');self.assertFalse(q.hinted)
+        self.assertEqual(len(q.answers),1)
+        q.advance('incorrect');q.advance('incorrect')
+        self.assertEqual(q.reason,'incorrect')
+    def test_request_hint(self):
+        q=self.game();q.advance('request_hint');q.advance('request_hint')
+        self.assertEqual(q.stage,'question')
+        q.advance('give_up');self.assertEqual(q.reason,'incorrect')
+    def test_classifier(self):
+        q=self.game()
+        self.assertIn(q.current['answer'],q.classifier()['instructions'])
+        self.assertEqual(q.delegation()['type'],'decisions')
+        self.assertNotIn('answer',q.snapshot())
+    def test_cancel(self):
+        q=self.game();q.advance('end_quiz');self.assertEqual(q.reason,'cancelled')
 
 class TestTransport(unittest.TestCase):
-    cfg=dict(model='gpt-live-1.1',voice='marin',sip=dict(provider_url='sips:example.invalid',caller_number='+12025550100',username='test',password='fake',allowed_destinations=['+12025550101']))
+    cfg=dict(model='gpt-live-1.1',voice='marin',sip=dict(provider_url='sips:example.invalid',caller_number='+420602123456',username='test',password='fake'))
     def test_sip(self):
-        t=transport({'mode':'sip','destination':'+12025550101'},self.cfg)
-        self.assertEqual(t['trunk']['auth']['type'],'digest')
+        for d in ('602123456','+420602123456','00420602123456','602 123 456'):
+            t=transport({'mode':'sip','destination':d},self.cfg)
+            self.assertEqual(t['destination'],'+420602123456')
+            self.assertEqual(t['trunk']['auth']['type'],'digest')
         p=session_payload(self.cfg,t)
-        self.assertNotIn('client',p['session']);self.assertNotIn('format',p['session']['audio'])
+        self.assertEqual(p['session']['delegation']['type'],'decisions')
+        self.assertNotIn('client',p['session'])
     def test_reject(self):
-        for d in ['112','+12025550102','sip:example.invalid']:
+        for d in ['112','+12025550102','sip:example.invalid','+420123']:
             with self.assertRaises(ValueError):transport({'mode':'sip','destination':d},self.cfg)
-        with self.assertRaises(ValueError):transport({'mode':'sip','destination':'+12025550101'},{})
+        with self.assertRaises(ValueError):transport({'mode':'sip','destination':'602123456'},{})
     def test_webrtc(self):
         t=transport({'sdp':'v=0\r\n'},self.cfg)
         self.assertEqual(t['type'],'webrtc')
         self.assertIn('client',session_payload(self.cfg,t)['session'])
         with self.assertRaises(ValueError):transport({'sdp':'bad'},self.cfg)
-if __name__=='__main__':unittest.main()

@@ -20,11 +20,11 @@ ROOT=Path(__file__).resolve().parent
 def eid(): return 'evt_'+uuid.uuid4().hex
 
 class Call:
-    def __init__(self, sid, mode, app):
+    def __init__(self, sid, mode, app, quiz=None):
         self.sid=sid; self.mode=mode; self.app=app
-        self.quiz=Quiz(app['cfg']['quiz_code']); self.ws=None; self.task=None; self.jobs=set()
+        self.quiz=quiz if quiz is not None else Quiz(); self.ws=None; self.task=None; self.jobs=set()
         self.lock=asyncio.Lock(); self.close_lock=asyncio.Lock()
-        self.seen=set(); self.delegations=set(); self.inputs=[]; self.consumed=-1
+        self.seen=set(); self.delegations={}; self.processed=set(); self.pending={}; self.decision_offset=-1; self.ready_for_decision=True
         self.status='dialing' if mode=='sip' else 'connected'
         self.error=''; self.usage=None; self.created=time.monotonic(); self.finished_at=None
         self.ended=False
@@ -35,26 +35,43 @@ class Call:
         if not self.ws or self.ws.closed: raise ConnectionError('Sideband closed')
         emit('sideband.send','DEBUG',session_id=self.sid,event_type=typ)
         await self.ws.send_json(dict(type=typ,event_id=eid(),**fields))
+    async def confirmed(self,typ,ack,**fields):
+        ident=eid()
+        future=asyncio.get_running_loop().create_future()
+        self.pending[ident]=(ack,future)
+        try:
+            await self.ws.send_json(dict(type=typ,event_id=ident,**fields))
+            emit('sideband.command',session_id=self.sid,event_type=typ,client_event_id=ident)
+            return await asyncio.wait_for(future,10)
+        finally:
+            self.pending.pop(ident,None)
     async def handle(self,e):
         eventid=e.get('event_id'); typ=e.get('type')
         if eventid and eventid in self.seen: return
         if eventid: self.seen.add(eventid)
-        if typ!='session.input_transcript.delta':
-            emit('sideband.event','DEBUG',session_id=self.sid,event_type=clean(typ,self.app['cfg']))
+        if typ in ('session.input_transcript.delta','session.output_transcript.delta','session.input_audio.delta','session.output_audio.delta'):
+            return
+        emit('sideband.event','DEBUG',session_id=self.sid,event_type=clean(typ,self.app['cfg']))
+        pending=self.pending.get(e.get('client_event_id') or (e.get('error') or {}).get('client_event_id'))
+        if pending and not pending[1].done():
+            if typ==pending[0]: pending[1].set_result(e)
+            elif typ=='error': pending[1].set_exception(RuntimeError('Live command rejected'))
         previous=self.status
         if typ=='transport.ringing' and self.status=='dialing': self.status='ringing'
         elif typ=='transport.answered' and not self.ended: self.status='connected'
         elif typ=='transport.failed':
             self.status='failed'; self.error='SIP transport failed'; self.ended=True
-        elif typ=='session.input_transcript.delta':
-            self.inputs.append(e); self.inputs=self.inputs[-2000:]
-        elif typ=='session.delegation.created' and e.get('delegation',{}).get('target')=='client':
-            d=e['delegation']['id']
-            if d in self.delegations: return
-            self.delegations.add(d)
-            emit('delegation.received',session_id=self.sid,delegation_id=d,stage=self.quiz.stage)
-            job=asyncio.create_task(self.delegate(d,e['offset_ms']))
-            self.jobs.add(job); job.add_done_callback(self.jobs.discard)
+        elif typ=='session.delegation.created' and e.get('delegation',{}).get('target')=='decisions':
+            d=e['delegation']['id']; offset=e.get('offset_ms',-1)
+            if d not in self.delegations:
+                self.delegations[d]=(self.quiz.decision_name,offset,self.ready_for_decision)
+                emit('delegation.received',session_id=self.sid,delegation_id=d,stage=self.quiz.stage)
+        elif typ=='decision.event' and e.get('delegation_id') and e.get('event',{}).get('type')=='decision.completed':
+            d=e['delegation_id']
+            if d not in self.processed:
+                self.processed.add(d)
+                job=asyncio.create_task(self.decide(d,e['event']['decision']))
+                self.jobs.add(job); job.add_done_callback(self.jobs.discard)
         elif typ=='session.closed':
             self.status='closed'; self.usage=e.get('usage'); self.ended=True
         elif typ=='error':
@@ -64,31 +81,39 @@ class Call:
             emit('sip.transport_failed','ERROR',session_id=self.sid,**error_fields(e,self.app['cfg']))
         if previous!=self.status:
             emit('call.transition',session_id=self.sid,mode=self.mode,previous=previous,status=self.status)
-    async def delegate(self,d,offset):
-        try:
-            await self.send('session.thinking.append',delegation_id=d,content='')
-            async with self.lock:
-                await asyncio.sleep(.6)
-                if self.status!='connected':
-                    emit('delegation.skipped','WARNING',session_id=self.sid,status=self.status)
+    async def decide(self,d,decision):
+        async with self.lock:
+            try:
+                if self.ended or self.quiz.stage=='finished': return
+                meta=self.delegations.get(d)
+                name=self.quiz.decision_name
+                if not meta or meta[0]!=name or not meta[2] or meta[1]<=self.decision_offset:
+                    emit('decision.stale','WARNING',session_id=self.sid,delegation_id=d,expected=name)
                     return
-                relevant=[x for x in self.inputs if x['end_ms']>self.consumed and x['start_ms']<=offset and x['end_ms']<=offset+350]
-                relevant.sort(key=lambda x:(x['start_ms'],x['end_ms']))
-                cluster=[]
-                for x in relevant:
-                    if cluster and x['start_ms']-cluster[-1]['end_ms']>1800: cluster=[]
-                    cluster.append(x)
-                utterance=''.join(x['delta'] for x in cluster).strip()
-                if relevant: self.consumed=max(self.consumed,max(x['end_ms'] for x in relevant))
-                self.inputs=[x for x in self.inputs if x['end_ms']>self.consumed]
-                previous_stage=self.quiz.stage
-                result=self.quiz.advance(utterance) if utterance else 'Backend nemá novou odpověď. Požádej o zopakování.'
-                emit('delegation.processed',session_id=self.sid,previous_stage=previous_stage,stage=self.quiz.stage,answered=len(self.quiz.answers),transcript_present=bool(utterance))
-                await self.send('session.commentary.append',delegation_id=d,content=result)
-                if self.quiz.stage=='finished' and self.finished_at is None: self.finished_at=time.monotonic()
-        except Exception as exc:
-            self.error='Delegation: '+type(exc).__name__
-            failure('delegation.failed',exc,session_id=self.sid)
+                self.ready_for_decision=False
+                answers=[a for a in decision.get('answers',[]) if a.get('name')==name]
+                a=answers[0] if len(answers)==1 else {}
+                allowed={x['value'] for x in self.quiz.classifier()['choices']}
+                choice=a.get('choice'); confidence=a.get('confidence')
+                valid=a.get('type')=='choice' and isinstance(choice,str) and choice in allowed and type(confidence) in (float,int) and 0<=confidence<=1
+                accepted=choice if valid and confidence>=self.app['cfg'].get('decision_min_confidence',.8) else 'unclear'
+                self.quiz.last_decision=dict(choice=accepted,confidence=confidence if valid else None)
+                emit('decision.classified',session_id=self.sid,delegation_id=d,stage=self.quiz.stage,classification=accepted,confidence=confidence if valid else None)
+                message=self.quiz.advance(accepted)
+                if self.quiz.stage!='finished':
+                    await self.confirmed('session.update','session.updated',session={'delegation':self.quiz.delegation(self.app['cfg'].get('decision_model','gpt-6-luna'))})
+                ack=await self.confirmed('session.commentary.append','session.commentary.appended',delegation_id=d,content=message)
+                self.decision_offset=max(meta[1],ack.get('end_ms',meta[1]))
+                self.ready_for_decision=True
+                if self.quiz.stage=='finished': self.finished_at=time.monotonic()
+            except Exception as exc:
+                self.error='Decision processing: '+type(exc).__name__
+                failure('decision.failed',exc,session_id=self.sid)
+                # No further scoring with unconfirmed configuration.
+                self.quiz.finish('technical_error','')
+                self.finished_at=time.monotonic()
+                with contextlib.suppress(Exception):
+                    await self.send('session.commentary.append',delegation_id=None,content='Omluv se za technický problém a rozluč se.')
     async def reader(self):
         emit('sideband.connected',session_id=self.sid,mode=self.mode)
         try:
@@ -151,11 +176,12 @@ async def index(req): return web.FileResponse(ROOT/'index.html')
 async def health(req): return web.json_response({'ok':True,'version':os.getenv('APP_VERSION','local')})
 async def config(req):
     cfg=req.app['cfg']
-    return web.json_response(dict(model=cfg['model'],demo_code=cfg['quiz_code'],sip_enabled=bool(cfg.get('sip')),sip_inbound_enabled=cfg.get('sip_inbound',{}).get('enabled',False),max_call_seconds=cfg['max_call_seconds']))
-def session_payload(cfg, t):
-    greeting='Po spojení zahaj pozdravem, představ fiktivní demo a zeptej se na souhlas.'
+    return web.json_response(dict(model=cfg['model'],sip_enabled=bool(cfg.get('sip')),sip_inbound_enabled=False,max_call_seconds=cfg['max_call_seconds']))
+def session_payload(cfg, t, quiz=None):
+    greeting='Po spojení se představ jako AI moderátor, nabídni soutěž a zeptej se na souhlas.'
+    quiz=quiz if quiz is not None else Quiz()
     session=dict(model=cfg['model'],instructions=PROMPT,audio={'output':{'voice':cfg['voice']}},
-        delegation={'type':'client','acknowledgement_delay_ms':800},
+        delegation=quiz.delegation(cfg.get('decision_model','gpt-6-luna')),
         input=[{'type':'message','role':'developer','content':[{'type':'input_text','text':greeting}]}])
     if t['type']=='webrtc':
         session['client']={'data_channel':{'allowed_client_events':[], 'allowed_server_events':[{'type':'session.started'},{'type':'session.closed'},{'type':'error'}]}}
@@ -254,7 +280,7 @@ async def inbound_worker(app,sid):
 
 async def webhook(req):
     cfg=req.app['cfg'].get('sip_inbound',{})
-    if not cfg.get('enabled'):
+    if True:  # Temporarily disabled even if legacy configuration enables it.
         emit('webhook.disabled','WARNING')
         raise web.HTTPNotFound()
     body=await req.read()
@@ -315,14 +341,14 @@ async def start(req):
             emit('session.busy','WARNING',mode=t['type'])
             raise web.HTTPConflict(text='An active call already exists; stop it first')
         req.app['calls'].clear()
-        http=req.app['http']; cfg=req.app['cfg']; call=None
+        http=req.app['http']; cfg=req.app['cfg']; call=None; quiz=Quiz()
         try:
             emit('openai.http.request',operation='create_session',api_url=req.app['api_url'],mode=t['type'],model=cfg['model'])
-            async with http.post(req.app['api_url'],headers=req.app['auth'],allow_redirects=False,json=session_payload(cfg,t)) as r:
+            async with http.post(req.app['api_url'],headers=req.app['auth'],allow_redirects=False,json=session_payload(cfg,t,quiz)) as r:
                 await api_response('create_session',r,cfg,mode=t['type'])
                 if r.status>=300: raise web.HTTPBadGateway(text=f'OpenAI HTTP {r.status}')
                 body=await r.json()
-            sid=body['session']['id']; call=Call(sid,t['type'],req.app)
+            sid=body['session']['id']; call=Call(sid,t['type'],req.app,quiz)
             token=secrets.token_urlsafe(24); req.app['calls'][token]=call
             emit('sideband.attach',session_id=sid)
             call.ws=await http.ws_connect(f"{req.app['ws_url']}/{sid}/attach",headers=req.app['auth'],heartbeat=20,max_msg_size=4*1024*1024)
@@ -347,7 +373,7 @@ async def active(req):
     return web.json_response({'calls':[dict(token=t,**c.state()) for t,c in req.app['calls'].items()]})
 async def lifecycle(app):
     cfg=app['cfg']
-    emit('service.started',openai_region=cfg.get('openai_region','global'),api_url=app['api_url'],ws_url=app['ws_url'],version=os.getenv('APP_VERSION','local'),model=cfg['model'],sip_outbound=bool(cfg.get('sip')),sip_inbound=cfg.get('sip_inbound',{}).get('enabled',False),log_level=cfg.get('log_level','INFO'),max_call_seconds=cfg['max_call_seconds'])
+    emit('service.started',openai_region=cfg.get('openai_region','global'),api_url=app['api_url'],ws_url=app['ws_url'],version=os.getenv('APP_VERSION','local'),model=cfg['model'],sip_outbound=bool(cfg.get('sip')),sip_inbound=False,decision_model=cfg.get('decision_model','gpt-6-luna'),log_level=cfg.get('log_level','INFO'),max_call_seconds=cfg['max_call_seconds'])
     app['http']=ClientSession(timeout=ClientTimeout(total=35))
     app['calls']={}; app['start_lock']=asyncio.Lock()
     app['inbound_seen']={}; app['inbound_jobs']=set()
