@@ -24,65 +24,11 @@ python -m unittest -v
 python server.py
 ```
 
-Otevřete http://localhost:8765.
+Otevřete http://localhost:8765. Pro WebRTC-only smažte sip nebo nastavte null. Při Ingressu lze public_origin vynechat, chart jej nastaví automaticky. Soubor s credentials nikdy necommitujte.
 
 ## Nasazení
 
 OCI image ghcr.io/l-ra/voicebot-poc, chart oci://ghcr.io/l-ra/charts/voicebot-poc. Neměnné dev verze 0.0.0-dev.RUN.ATTEMPT; alias dev a chart 0.0.0-dev. Tagy vX.Y.Z publikují release. amd64/arm64. Příklad umbrella chartu a ingress konfigurace níže zůstává zachován.
-
-# Voicebot PoC
-
-Demonstrátor hlasové soutěže GPT-Live. Zachovává WebRTC a přidává nativní odchozí SIP. Soutěžní stav, otázky A/B/C a hodnocení řídí deterministický Python backend; žádný druhý LLM. Jde o fiktivní demo bez výhry. Používejte pouze vlastní telefonní čísla nebo čísla osob, které předem souhlasily.
-
-## Konfigurace
-
-```sh
-cp config.example.json config.json
-chmod 600 config.json
-python -c 'import secrets; print(secrets.token_urlsafe(32))'
-```
-
-Doplňte OpenAI API klíč, náhodný operator_token, demonstrační kód, model, hlas, public_origin (přesná adresa konzole bez koncového lomítka; při zapnutém Ingressu se nastavuje automaticky a v JSON není nutný) a SIP trunk. Pro WebRTC-only smažte objekt sip nebo nastavte null. SIP vyžaduje provider_url ve formátu sips:host:5061, Digest username/password, povolené caller ID a přesný seznam allowed_destinations v E.164. Žádné skutečné přihlašovací heslo účastníka se nevyžaduje. Operator token je autentizace konzole; nejedná se o soutěžní kód.
-
-Nepřidávejte config.json, vlastní Secret manifesty nebo values s citlivými údaji do Git. Kontejner kopíruje výhradně aplikační soubory.
-
-### Regionální OpenAI projekt
-
-Pro projekt US [Storage & Processing] nastavte v config.json (nebo files/config.json v umbrella chartu) `"openai_region": "us"`. Výchozí hodnota global zachovává původní chování; eu je dostupná pro evropský projekt. Aplikace volí všechny Live REST endpointy (create, accept, reject, hangup) a Sideband WebSocket podle regionu: api.openai.com, us.api.openai.com nebo eu.api.openai.com. Nepoužívá fallback do jiného regionu. Při startu vypíše region a URL do provozního logu. Pro US použijte SIP URI sip:proj_XXXXXXXX@sip.api.openai.com;transport=tls a API klíč i webhook secret ze stejného US projektu. Pro EU používejte sip-eu.api.openai.com. Regionální projekt a API hostname musejí odpovídat; samotný region nenahrazuje případné oprávnění k GPT-Live SIP. Viz https://developers.openai.com/api/docs/guides/data-residency a https://developers.openai.com/api/docs/guides/voice-sip.
-
-## Lokální spuštění
-
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m unittest -v
-python server.py
-```
-
-Otevřete http://localhost:8765 (musí odpovídat public_origin), vložte operator_token a zvolte WebRTC nebo SIP. U SIP vyplňte povolené číslo a potvrďte souhlas. Konzole sleduje vytáčení, vyzvánění, spojení a soutěžní stav. Umožňuje zavěšení; po dokončení soutěže backend vyčká 15 s na rozloučení a zavěsí. Nastavený limit zahrnuje i vytáčení. Jeden hovor současně. Při ztrátě spojení konzole se lze znovu připojit; backend se pokusí ukončit relaci při timeoutu a při výpadku sidebandu.
-
-## SIP
-
-OpenAI provádí signalizaci a přenos zvuku přímo s operátorem, nikoliv přes tento server. Backend volá POST /v1/live/sessions s transport.type=sip a připojuje se na sideband /attach. Zavěšení používá POST /v1/live/sessions/{id}/hangup. Příchozí hovory podporuje aktuální dev verze (viz níže); původní 0.2.0 pouze dial-out. SIP provider musí podporovat TLS, SDES-SRTP a kompatibilní kodeky; funkčnost konkrétního účtu Zadarma nebyla ověřena. Není zapotřebí vlastní veřejný SIP port, webhook ani Asterisk. Dokumentace: https://developers.openai.com/api/docs/guides/voice-sip?api=live
-
-### Příchozí SIP hovory (dial-in)
-
-Do existujícího files/config.json přidejte samostatnou sekci:
-
-```json
-"sip_inbound": {
-  "enabled": true,
-  "webhook_secret": "whsec_REPLACE_ME"
-}
-```
-
-Skutečný signing secret získáte při registraci webhooku v OpenAI projektu. URL: https://<hostname>/webhooks/openai (stejný hostname jako Ingress). Přihlaste webhook pouze k live.transport.incoming; podporována je i starší událost live.call.incoming. API klíč, webhook a SIP URI musí patřit stejnému projektu. V Zadarma nasměrujte veřejné číslo na externí SIP URI sip:proj_XXXXXXXX@sip.api.openai.com;transport=tls (regionální EU endpoint sip-eu.api.openai.com používejte podle konfigurace projektu). Ověřte kompatibilitu TLS/SRTP a dostupnost GPT-Live SIP pro projekt. Dial-in nepotřebuje sekci sip pro odchozí hovory; ta může být null.
-
-Webhook je veřejný HTTPS POST endpoint, nevyžaduje token operátora, ale ověřuje HMAC-SHA256 nad původním tělem a hlavičkami Standard Webhooks (tolerance 5 minut). Duplicitní delivery ID a session ID jsou evidovány v paměti po 73 hodinách. Po přijetí webhooku backend asynchronně přijme hovor, případně odmítne SIP 486 při obsazenosti. Volající slyší úvod pro příchozí hovor a stejný soutěžní scénář. Konzole po přihlášení automaticky objeví aktivní hovor, i pokud vznikl později. Zavření monitorovací stránky nezavěsí cizí příchozí hovor; ruční tlačítko Zavěsit ano. Platí jeden souběžný hovor napříč všemi transporty a stávající časový limit.
-
-PoC omezení: deduplikace a fronta nejsou perzistentní, restart podu může ztratit rozpracované události a 204 webhook neznamená úspěšný SIP accept. Pro produkci použijte trvalou frontu a idempotentní evidenci. Příchozí číslo není autentizace; SIP hlavičky se nepoužívají k autorizaci. Veřejný dial-in může generovat API náklady, proto použijte testovací číslo a limity projektu/operátora. Ingress a cert-manager musí být funkční před registrací webhooku. Dokumentace: https://developers.openai.com/api/docs/guides/voice-sip?api=live
-
 ## Docker
 
 Po publikaci image:
@@ -90,7 +36,7 @@ Po publikaci image:
 ```sh
 docker run --rm -p 127.0.0.1:8765:8765 \
   -v "$PWD/config.json:/run/voicebot/config.json:ro" \
-  ghcr.io/l-ra/voicebot-poc:0.2.0
+  ghcr.io/l-ra/voicebot-poc:dev
 ```
 
 Soubor musí být čitelný pro neprivilegovaného uživatele kontejneru (UID/GID 10001). Nastavte ACL pro tento UID nebo používejte vlastnictví odpovídající kontejneru; nezveřejňujte soubor.
@@ -102,7 +48,7 @@ kubectl create namespace voicebot
 kubectl -n voicebot create secret generic voicebot-config \
   --from-file=config.json=./config.json
 helm upgrade --install voicebot oci://ghcr.io/l-ra/charts/voicebot-poc \
-  --version 0.2.0 -n voicebot
+  --version 0.0.0-dev -n voicebot
 kubectl -n voicebot port-forward svc/voicebot-voicebot 8765:8765
 ```
 
@@ -177,20 +123,18 @@ data:
   "openai_region": "global",
   "voice": "marin",
   "max_call_seconds": 300,
-  "sip_inbound": {"enabled": false, "webhook_secret": "whsec_REPLACE_ME"},
+  "decision_model": "gpt-6-luna",
+  "decision_min_confidence": 0.8,
   "sip": {
     "provider_url": "sips:sip.example.invalid:5061",
     "username": "REPLACE_ME",
     "password": "REPLACE_ME",
-    "caller_number": "+12025550100",
-    "allowed_destinations": [
-      "+12025550101"
-    ]
+    "caller_number": "+420602123456"
   }
 }
 ```
 
-Pro čistě WebRTC instalaci nastavte `sip` na `null`. Pro SIP nahraďte ukázkové údaje skutečnými hodnotami operátora, caller ID a povolenými cílovými čísly. Nastavte vlastní náhodný operator token. Při zapnutém Ingressu `public_origin` v JSON vynechte; bez Ingressu jej doplňte. Soubor `files/config.json` musí být součástí zdrojů nadřazeného chartu při renderování; nesmí být vyloučen pomocí `.helmignore`. Pokud chybí nebo je prázdný, renderování skončí chybou.
+Pro čistě WebRTC instalaci nastavte `sip` na `null`. Pro SIP nahraďte ukázkové údaje skutečnými hodnotami operátora, caller ID. Nastavte vlastní náhodný operator token. Při zapnutém Ingressu `public_origin` v JSON vynechte; bez Ingressu jej doplňte. Soubor `files/config.json` musí být součástí zdrojů nadřazeného chartu při renderování; nesmí být vyloučen pomocí `.helmignore`. Pokud chybí nebo je prázdný, renderování skončí chybou.
 
 **Deklarativní nasazení – příklad Argo CD Application**
 
@@ -231,15 +175,15 @@ Tato varianta je alternativou k přímé instalaci výše, nikoli doplňkem k ji
 
 ## Provozní logy a diagnostika
 
-Aplikace zapisuje strukturované JSON logy na stdout kontejneru. Výchozí úroveň INFO poskytuje základní audit (start, webhook, přijetí/odmítnutí hovoru, změny stavu, delegace, zavěšení). WARNING/ERROR zachytí problémy; DEBUG přidává typy Sideband událostí a odeslaných zpráv. Nastavení v files/config.json:
+Aplikace zapisuje strukturované JSON logy na stdout kontejneru. Výchozí úroveň INFO poskytuje základní audit (start, změny stavu, delegace, klasifikace, zavěšení). WARNING/ERROR zachytí problémy; DEBUG přidává typy Sideband událostí a odeslaných zpráv. Nastavení v files/config.json:
 
 ```json
 "log_level": "DEBUG"
 ```
 
-Po změně restartujte pod. Logy získáte v Kubernetes například přes kubectl -n voicebot logs deployment/voicebot-voicebot -f nebo v GUI clusteru. Pro HTTP 401 při accept hledejte event openai.http.response, operation accept, http_status, request_id, error_type, error_code a error_message. Chyba znamená, že webhook dorazil, ale OpenAI odmítlo API operaci; zkontrolujte klíč, jeho oprávnění a shodu projektu. Samotné logování autorizaci neopravuje. Při chybě WebSocketu se zaznamená typ výjimky, HTTP status (je-li dostupný) a místo v kódu.
+Po změně restartujte pod. Logy získáte v Kubernetes například přes kubectl -n voicebot logs deployment/voicebot-voicebot -f nebo v GUI clusteru. Při API chybě hledejte openai.http.response, http_status, request_id, error_type, error_code a error_message. U nativní delegace sledujte delegation.received, decision.classified, sideband.command a decision.failed. Samotné logování autorizaci neopravuje. Při chybě WebSocketu se zaznamená typ výjimky, HTTP status (je-li dostupný) a místo v kódu.
 
-Nikdy se úmyslně neloguje celé tělo requestu/response, Authorization, SIP heslo, soutěžní kód, telefonní čísla, SDP, audio ani přepis. Strukturované chybové zprávy poskytovatele jsou omezené a redigované podle známých citlivých hodnot a vzorů; mohou přesto obsahovat neočekávané údaje poskytovatele. Omezte přístup k logům a jejich retenci. Audit není neměnný bezpečnostní audit ani perzistentní úložiště; retenci zajišťuje infrastruktura.
+Nikdy se úmyslně neloguje celé tělo requestu/response, Authorization, SIP heslo, telefonní čísla, SDP, audio ani přepis. Strukturované chybové zprávy poskytovatele jsou omezené a redigované podle známých citlivých hodnot a vzorů; mohou přesto obsahovat neočekávané údaje poskytovatele. Omezte přístup k logům a jejich retenci. Audit není neměnný bezpečnostní audit ani perzistentní úložiště; retenci zajišťuje infrastruktura.
 
 ### Diagnostika regionálního HTTP 404
 
@@ -252,7 +196,7 @@ Pro dočasné ladění nastavte v JSON konfiguraci:
 "diagnostic_body_preview": true
 ```
 
-Po restartu se jednou provede GET /v1/models na nastaveném regionálním hostu se stejným API klíčem. Probe je asynchronní, nevytváří hlasovou relaci a neblokuje start; úspěch nepotvrzuje dostupnost Live SIP accept ani oprávnění k němu. Logy openai.probe.request, openai.probe.result a openai.http.response obsahují výsledek; seznam modelů se neloguje. HTTP odpovědi obsahují výslednou URL bez query, vybrané gateway hlavičky (Server, CF-Ray, Content-Type, request ID, Via aj.), redirect metadata a u accept také dobu odezvy. REST požadavky nenásledují redirect automaticky, aby nedošlo k přesměrování regionálního API klíče; případný Location se zaznamená bez query. Chybová neJSON odpověď má délku a SHA-256 omezeného prefixu; opt-in diagnostic_body_preview přidá redigovaný náhled do 1200 znaků. Čtení chybového těla je omezené na 16 KiB plus jeden detekční byte. Náhled může obsahovat neznámé citlivé údaje poskytovatele, proto jej zapínejte pouze při ladění, před sdílením logy zkontrolujte a poté obě diagnostické volby vypněte. Hlavičky Authorization, Cookie a Set-Cookie se nelogují. Chybný podpis webhooku zaznamená pouze přítomnost hlaviček a stáří timestampu, nikoli podpis ani tělo.
+Po restartu se jednou provede GET /v1/models na nastaveném regionálním hostu se stejným API klíčem. Probe je asynchronní, nevytváří hlasovou relaci a neblokuje start; úspěch nepotvrzuje dostupnost Live ani Decisions delegace. Logy openai.probe.request, openai.probe.result a openai.http.response obsahují výsledek; seznam modelů se neloguje. HTTP odpovědi obsahují výslednou URL bez query, vybrané gateway hlavičky (Server, CF-Ray, Content-Type, request ID, Via aj.), redirect metadata. REST požadavky nenásledují redirect automaticky, aby nedošlo k přesměrování regionálního API klíče; případný Location se zaznamená bez query. Chybová neJSON odpověď má délku a SHA-256 omezeného prefixu; opt-in diagnostic_body_preview přidá redigovaný náhled do 1200 znaků. Čtení chybového těla je omezené na 16 KiB plus jeden detekční byte. Náhled může obsahovat neznámé citlivé údaje poskytovatele, proto jej zapínejte pouze při ladění, před sdílením logy zkontrolujte a poté obě diagnostické volby vypněte. Hlavičky Authorization, Cookie a Set-Cookie se nelogují.
 
 ## CI/CD a vydávání verzí
 
@@ -290,4 +234,4 @@ GitHub standardně vytváří GHCR balíčky jako private i u public repozitář
 
 ## Omezení
 
-PoC: stav v paměti, bez nahrávek a bez trvalého logu. Konzole nezobrazuje surový přepis (obsahuje i soutěžní kód). Interpretace časovaných transcript delta je heuristika a může vyžadovat zopakování odpovědi. Automatický hangup po rozloučení používá časovou rezervu, nikoliv potvrzení přehrání. Při pádu procesu není možné garantovat ukončení vzdáleného hovoru; nastavte limity i u SIP operátora. Živý hovor vyžaduje skutečné credentials a kompatibilní SIP trunk. Automatické testy nenahrazují end-to-end ověření.
+PoC: stav v paměti, bez nahrávek a bez trvalého logu. Konzole nezobrazuje surový přepis. Klasifikace Decisions může vyžadovat zopakování odpovědi. Automatický hangup po rozloučení používá časovou rezervu, nikoliv potvrzení přehrání. Při pádu procesu není možné garantovat ukončení vzdáleného hovoru; nastavte limity i u SIP operátora. Živý hovor vyžaduje skutečné credentials a kompatibilní SIP trunk. Automatické testy nenahrazují end-to-end ověření.

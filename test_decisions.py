@@ -10,7 +10,9 @@ class DecisionTests(unittest.IsolatedAsyncioTestCase):
     async def decision(self,choice,confidence=.99,d='del_1',offset=10):
         c=self.call
         await c.handle({'type':'session.delegation.created','event_id':d+'_start','offset_ms':offset,'delegation':{'id':d,'target':'decisions'}})
-        await c.decide(d,{'answers':[{'type':'choice','name':c.quiz.decision_name,'choice':choice,'confidence':confidence}]})
+        await c.handle({'type':'decision.event','event_id':d+'_end','delegation_id':d,'event':{'type':'decision.completed','decision':{'answers':[{'type':'choice','name':c.quiz.decision_name,'choice':choice,'confidence':confidence}]}}})
+        import asyncio
+        await asyncio.gather(*list(c.jobs))
     async def test_confirm_before_commentary(self):
         await self.decision('yes')
         c=self.call
@@ -31,3 +33,9 @@ class DecisionTests(unittest.IsolatedAsyncioTestCase):
         self.call.send=AsyncMock()
         await self.decision('yes')
         self.assertEqual(self.call.quiz.reason,'technical_error')
+    async def test_duplicate_result(self):
+        await self.decision('yes')
+        c=self.call
+        await c.handle({'type':'decision.event','event_id':'duplicate','delegation_id':'del_1','event':{'type':'decision.completed','decision':{'answers':[{'type':'choice','name':c.quiz.decision_name,'choice':'ready','confidence':.99}]}}})
+        self.assertEqual(c.quiz.stage,'name')
+        self.assertFalse(c.jobs)

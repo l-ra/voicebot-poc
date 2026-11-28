@@ -42,7 +42,9 @@ class Call:
         try:
             await self.ws.send_json(dict(type=typ,event_id=ident,**fields))
             emit('sideband.command',session_id=self.sid,event_type=typ,client_event_id=ident)
-            return await asyncio.wait_for(future,10)
+            result=await asyncio.wait_for(future,10)
+            emit('sideband.confirmed',session_id=self.sid,event_type=ack,client_event_id=ident)
+            return result
         finally:
             self.pending.pop(ident,None)
     async def handle(self,e):
@@ -87,7 +89,7 @@ class Call:
                 if self.ended or self.quiz.stage=='finished': return
                 meta=self.delegations.get(d)
                 name=self.quiz.decision_name
-                if not meta or meta[0]!=name or not meta[2] or meta[1]<=self.decision_offset:
+                if not meta or meta[0]!=name or not meta[2] or type(meta[1]) is not int or meta[1]<=self.decision_offset:
                     emit('decision.stale','WARNING',session_id=self.sid,delegation_id=d,expected=name)
                     return
                 self.ready_for_decision=False
@@ -97,8 +99,14 @@ class Call:
                 choice=a.get('choice'); confidence=a.get('confidence')
                 valid=a.get('type')=='choice' and isinstance(choice,str) and choice in allowed and type(confidence) in (float,int) and 0<=confidence<=1
                 accepted=choice if valid and confidence>=self.app['cfg'].get('decision_min_confidence',.8) else 'unclear'
-                self.quiz.last_decision=dict(choice=accepted,confidence=confidence if valid else None)
-                emit('decision.classified',session_id=self.sid,delegation_id=d,stage=self.quiz.stage,classification=accepted,confidence=confidence if valid else None)
+                probabilities={}
+                for item in a.get('probabilities',[]) if isinstance(a.get('probabilities'),list) else []:
+                    if not isinstance(item,dict): continue
+                    v,p=item.get('value'),item.get('probability')
+                    if isinstance(v,str) and v in allowed and type(p) in (float,int) and 0<=p<=1:
+                        probabilities[v]=p
+                self.quiz.last_decision=dict(choice=accepted,confidence=confidence if valid else None,probabilities=probabilities)
+                emit('decision.classified',session_id=self.sid,delegation_id=d,stage=self.quiz.stage,classification=accepted,confidence=confidence if valid else None,probabilities=probabilities)
                 message=self.quiz.advance(accepted)
                 if self.quiz.stage!='finished':
                     await self.confirmed('session.update','session.updated',session={'delegation':self.quiz.delegation(self.app['cfg'].get('decision_model','gpt-6-luna'))})
@@ -279,55 +287,9 @@ async def inbound_worker(app,sid):
                 call.status='failed'
 
 async def webhook(req):
-    cfg=req.app['cfg'].get('sip_inbound',{})
-    if True:  # Temporarily disabled even if legacy configuration enables it.
-        emit('webhook.disabled','WARNING')
-        raise web.HTTPNotFound()
-    body=await req.read()
-    if not verify_webhook(body,req.headers,cfg['webhook_secret']):
-        emit('webhook.signature_invalid','WARNING',body_bytes=len(body),header_id_present=bool(req.headers.get('webhook-id')),header_signature_present=bool(req.headers.get('webhook-signature')),header_timestamp_present=bool(req.headers.get('webhook-timestamp')),timestamp_age_seconds=round(time.time()-int(req.headers['webhook-timestamp'])) if re.fullmatch(r'[0-9]{1,12}',req.headers.get('webhook-timestamp','')) else None)
-        raise web.HTTPUnauthorized(text='Invalid webhook signature')
-    try:
-        event=json.loads(body)
-        if not isinstance(event,dict): raise ValueError()
-    except (ValueError,UnicodeError):
-        emit('webhook.invalid_json','WARNING')
-        raise web.HTTPBadRequest(text='Invalid event')
-    if event.get('type') not in ('live.transport.incoming','live.call.incoming'):
-        return web.Response(status=204)
-    data=event.get('data')
-    if not isinstance(data,dict): raise web.HTTPBadRequest(text='Missing event data')
-    if event['type']=='live.transport.incoming' and data.get('type')!='sip':
-        return web.Response(status=204)
-    sid=data.get('session_id')
-    if not isinstance(sid,str) or not re.fullmatch(r'live_[A-Za-z0-9_-]{1,200}',sid):
-        raise web.HTTPBadRequest(text='Invalid session ID')
-    # Deduplicate both webhook delivery and pending session, even across legacy event names.
-    seen=req.app['inbound_seen']; now=time.monotonic()
-    for key,expiry in list(seen.items()):
-        if expiry<=now: del seen[key]
-    keys=('delivery:'+req.headers['webhook-id'],'session:'+sid)
-    if any(key in seen for key in keys):
-        emit('webhook.duplicate',session_id=sid)
-        return web.Response(status=204)
-    if len(seen)>=20000 or len(req.app['inbound_jobs'])>=16:
-        emit('webhook.capacity','WARNING',session_id=sid)
-        raise web.HTTPServiceUnavailable(text='Inbound capacity reached')
-    for key in keys: seen[key]=now+73*3600
-    emit('webhook.accepted',session_id=sid,event_type=event['type'],delivery_id=clean(req.headers['webhook-id'],req.app['cfg']))
-    async def work():
-        try:
-            await inbound_worker(req.app,sid)
-        except Exception as exc:
-            # No credentials or caller data in logs.
-            failure('inbound.decision_failed',exc,session_id=sid)
-            # Allow webhook retries only if no slot was accepted/reserved for this session.
-            if not any(c.sid==sid for c in req.app['calls'].values()):
-                for key in keys: seen.pop(key,None)
-    job=asyncio.create_task(work())
-    req.app['inbound_jobs'].add(job)
-    job.add_done_callback(req.app['inbound_jobs'].discard)
-    return web.Response(status=204)
+    # Inbound is intentionally suspended in this version. No call acceptance.
+    emit('webhook.disabled','WARNING')
+    raise web.HTTPNotFound()
 async def start(req):
     try:
         data=await req.json()

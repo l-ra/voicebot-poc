@@ -79,6 +79,7 @@ class Quiz:
         if choice in ('incorrect','give_up','request_hint'):
             if self.hinted:
                 if choice=='request_hint': return 'Další nápověda není k dispozici. Požádej o poslední odpověď.'
+                self.attempts+=1
                 return self.finish('incorrect','Ani s nápovědou se nepodařilo odpovědět. Poděkuj za účast, povzbuď a rozluč se.')
             self.hinted=True; self.attempts=1 if choice!='request_hint' else 0
             self.log.append(f'Nápověda: otázka {len(self.answers)+1}.')

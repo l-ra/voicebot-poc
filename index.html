@@ -16,7 +16,7 @@
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-let owned=false, inboundEnabled=false, idleTimer=null;
+let owned=false, idleTimer=null;
 let auth='', token=null, pc=null, mic=null, dc=null, timer=null, ready=false, busy=false;
 const terminal=new Set(['closed','failed']);
 fetch('/healthz',{cache:'no-store'}).then(r=>r.json()).then(c=>{$('version').textContent=c.version||'local'}).catch(()=>{$('version').textContent='unknown'});
@@ -62,7 +62,7 @@ $('mode').onchange=()=>{$('phone').hidden=$('mode').value!=='sip'};
 async function login(saved){
  auth=saved||$('auth').value;busy=true;buttons();$('error').textContent='';
  try{const c=await req('/config');$('auth').value='';$('model').textContent=' '+c.model;try{localStorage.setItem('voicebot.operatorToken',auth)}catch{}
- $('mode').options[1].disabled=!c.sip_enabled;ready=true;inboundEnabled=c.sip_inbound_enabled;$('inbound').textContent=inboundEnabled?'SIP dial-in aktivní — čekám na příchozí hovory.':'SIP dial-in vypnutý';$('status').textContent='Připraveno';
+ $('mode').options[1].disabled=!c.sip_enabled;ready=true;$('inbound').textContent='Příchozí hovory jsou vypnuté.';$('status').textContent='Připraveno';
  const a=await req('/active');const call=a.calls.find(x=>!terminal.has(x.connection));
  if(call){token=call.token;render(call);poll()}
  }catch(e){ready=false;auth='';try{localStorage.removeItem('voicebot.operatorToken')}catch{}$('error').textContent=e.message}finally{busy=false;buttons()}
